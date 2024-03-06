@@ -9,12 +9,12 @@ editor_options:
 
 ```{r env_setup, include=FALSE}
 
-knitr::opts_chunk$set(eval=FALSE,
-                      include=FALSE,
-                      echo = FALSE, 
-                      message = FALSE, 
-                      warning = FALSE, 
-                      class.source = "bg-primary")
+opts_chunk$set(eval=FALSE,
+               include=FALSE,
+               echo = FALSE, 
+               message = FALSE, 
+               warning = FALSE, 
+               class.source = "bg-primary")
 
 ## Base packages
 library(tidyverse)
@@ -51,13 +51,16 @@ library(ggcorrplot)
 library(factoextra)
 
 ### Enviro Setup
-setwd("C:/Users/snewt/Desktop/Thesis")
+current_path = rstudioapi::getActiveDocumentContext()$path 
+setwd(dirname(current_path))
 
 #### Google Places API key
-key <- "AIzaSyBayjlO6MsVNzYeuRqkiLADgXQrLGIRf9g"
+key <- paste(read_file(paste0(dirname(getwd()), "/gm_api_key.txt")), collapse="\n")
+
 ```
 
 ```{r load_environment, eval=TRUE}
+## Placeholders to be able to save and load heavy datasets and variables
 load('Charge_Environment.RData')
 #save.image(file='Charge_Environment.RData')
 #save(streets, file="streets.RData")
@@ -562,7 +565,10 @@ nodes.averages <- graph %>%
          knn_distance = closest$distance) 
 
 #Merge new distance decay accessibility values
-nodes.averages <- merge(nodes.averages, negative_exp, by.x="nodeID", by.y="id", all=FALSE) %>%
+nodes.averages <- merge(nodes.averages, 
+                        negative_exp, 
+                        by.x="nodeID", 
+                        by.y="id", all=TRUE) %>%
   rename(distance_decay_accessibility = "charge_points") %>%
 st_as_sf()
 
@@ -573,7 +579,7 @@ got.sub.new <- gothenburg.subdiv %>% mutate(area = st_area(.)) %>%
 ## Filter nodes by subdivision (Spatial join)
 filtered.nodes <- st_filter(nodes.averages, gothenburg.subdiv)
 
-joined.nodes <- st_join(filtered.nodes, got.sub.new, join = st_within)
+joined.nodes <- st_join(filtered.nodes, got.sub.new, join = st_within, left=TRUE)
 joined.nodes <- joined.nodes %>% 
   mutate(knn_distance = knn_distance) %>% 
   mutate(distance_level = mapply(getDistanceLevel, knn_distance))
@@ -581,10 +587,9 @@ joined.nodes <- joined.nodes %>%
 avg_dist_deso <- joined.nodes %>% as_tibble() %>% 
   group_by(deso) %>% 
   summarise(nodes = n(),
-            avg_dist = mean(knn_distance),
+            avg_dist = mean(knn_distance) * 1000,
             avg_dd_accessibility = mean(distance_decay_accessibility)) %>%
-  arrange((avg_dd_accessibility)) %>%
-  drop_na()
+  arrange(avg_dd_accessibility) ## drop_na() ?
 
 avg_dist_deso <- merge(avg_dist_deso, regSO_deso_table) %>% 
   arrange(desc(avg_dist))
@@ -601,7 +606,7 @@ avg_dist_deso_latlong <- merge(x = avg_dist_deso,
                                by.y = "deso.ref") %>%
   as_tibble()
 
-joined.nodes %>% count(deso)
+joined.nodes %>% filter(deso == "1480C3440") %>% nrow()
 
 got.sub.new <- got.sub.new %>% as_tibble() %>%
   #filter(deso %in% avg_dist_deso$deso & !is.na(deso)) %>%
@@ -630,7 +635,7 @@ got.sub.new %>% as_tibble() %>%
        y="") +
   theme_light()
 
-ggplot(got.sub.new, aes(x=as.factor(regso), y=avg_dist, size=n)) +
+ggplot(got.sub.new, aes(x=as.factor(regso), y=avg_dist, size=nodes)) +
   geom_point(alpha=0.7)
 ```
 
@@ -768,12 +773,25 @@ ggplot(data = deso.demographics, aes(x=avg_dist, y=bilar_i_trafik)) +
 
 <https://www.datacamp.com/tutorial/pca-analysis-r>
 
+#### All subdivisions
+
 ```{r setup_pca_matrix}
 #### PCA and Correlations matrix
-deso.demographics.pca <- deso.demographics %>% select(-deso, -regso, -nodes, -ages)
+deso.demographics.pca <- deso.demographics %>% select(-deso, -regso, -nodes, -ages, -avg_dd_accessibility)
 deso.demographics.normalized <- scale(deso.demographics.pca)
 corr_matrix <- cor(deso.demographics.normalized)
 ```
+
+#### Majority rental subdivisions
+
+```{r setup_pca_matrix}
+#### PCA and Correlations matrix
+deso.demographics.pca <- deso.demographics.rentals %>% select(-deso, -regso, -nodes, -ages, -avg_dd_accessibility)
+deso.demographics.normalized <- scale(deso.demographics.pca)
+corr_matrix <- cor(deso.demographics.normalized)
+```
+
+##### Correlation Matrix
 
 ```{r correlation_plot}
 # Plot correlation matrix
@@ -791,6 +809,4 @@ fviz_cos2(data.pca, choice = "var", axes = 1:2)
 fviz_pca_var(data.pca, col.var = "cos2",
              gradient.cols = c("black", "orange", "green"),
              repel = TRUE)
-
-
 ```
