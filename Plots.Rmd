@@ -1,0 +1,202 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+editor_options: 
+  chunk_output_type: console
+---
+
+Note: Run Charge_Analysis first
+#load('Charge_Environment.RData')
+
+```{r plot designs}
+#### PLOT DESIGN ####
+# Set color palette
+pal <- c("#bb3e03","#ee9b00","yellow", "#e9d8a6","#94d2bd","#0a9396","#005f73")
+pal2 <- c("light green", "#90C59B", "#F0C3E6", "#8778D7", "#1e00be", "#001219")
+pal3 <- wes_palette("BottleRocket2", 21, type = "continuous")
+# Set color background
+bck <- "#001219"
+# Set theme 
+theme_custom <- theme_void()+
+  theme(
+    plot.margin = margin(1,1,10,1,"pt"),
+    plot.background = element_rect(fill="white",color=NA),
+    legend.position = "bottom",
+    legend.title = element_text(hjust=0.5,color="black",face="bold"),
+    legend.text = element_text(color="black")
+  )
+
+```
+
+
+```{r charge_point_ds}
+# Descriptive Stats for Charge points
+p2p.data %>%
+rename("Latitude" = lat,
+       "Longitude" = lon,
+       "Car charging" = vehicleTypes.car,
+       "Motorbike charging" = vehicleTypes.motorbike,
+       "Electic bike charging" = vehicleTypes.bike,
+       "Min power range" = powerRange.min,
+       "Max power range" = powerRange.max,
+       "Fast charger (50kwh+)" = isFastCharge) %>%
+tbl_summary(.,
+            include = c(-id, -full_address, -status, -lng),
+            statistic = list(all_continuous() ~ "{mean} ({min}, {max})")) %>%
+            modify_caption("**PEV public charge points across Gothenburg city** (N = {N})")
+```
+
+```{r nodes_ds}
+# Descriptive Stats for nodes
+
+```
+
+```{r map_charge_points}
+## Plot map with charge points
+ggplot() +
+  #geom_sf(data = water$osm_multipolygons, fill = 'light blue') + 
+  #geom_sf(data = land$osm_lines, color = 'light blue') + 
+  #geom_sf(data = forest$osm_polygons, fill = 'dark green', color="dark green") +
+  #geom_sf(data = parks$osm_polygons, fill = '#94ba8e', color="dark green") +
+  geom_sf(data = got.boundary$osm_multipolygons, linewidth=0.5, colour="grey") +
+  geom_sf(data=gothenburg.subdiv, alpha=0.6, linewidth=0.6, colour="#8778D7", fill="#90C59B") +
+    geom_sf(data = streets$osm_lines, linewidth=0.2,alpha=0.5, color = '#1e00be') +
+  geom_sf(data = main_streets$osm_lines, alpha=0.5, color = "#1e00be", linewidth=0.6) + 
+  geom_sf(data = charge_points.p2p.geo, size=0.8, color="#1e00be") +
+  coord_sf(xlim = c(11.71, 12.16), 
+           ylim = c(57.58, 57.86), 
+           expand = TRUE, clip="on") +
+  labs(title="Public PEV charge points in Gothenburg City",
+     subtitle = "",
+     fill = "") +
+  theme_custom + theme(legend.position = "")
+```
+
+```{r map_nodes}
+## Plot map with nodes and 
+ggplot() +
+  #geom_sf(data = streets$osm_lines, linewidth=0.2, color = '#1e00be') +
+  #geom_sf(data = main_streets$osm_lines, alpha=0.8, color = "#1e00be", linewidth=0.6) + 
+  geom_sf(data = got.boundary$osm_multipolygons, linewidth=0.5, colour="grey") +
+  geom_sf(data=gothenburg.subdiv, alpha=0.2, linewidth=0.6, colour="transparent", fill="#90C59B")+
+  geom_sf(data = joined.nodes, size=0.4, aes(color=distance_level)) +
+  coord_sf(xlim = c(11.71, 12.16), 
+           ylim = c(57.58, 57.86), 
+           expand = TRUE, clip = "on") +
+  labs(title="Nodes in Gothenburg City road network graph",
+     subtitle = "By distance to charge point",
+     color = "") +
+  scale_color_manual(values= wes_palette(7, name = "Zissou1", type = "continuous")) +
+  theme_custom + 
+  theme(legend.key.width = unit(1, 'cm'))
+```
+
+```{r map_deso_foreign_percentage}
+foreign <- deso.demographics %>% select(deso, foreign)
+got.sub.demo <- got.sub.new %>% merge(., foreign, by="deso")
+# Plot percentage foreign background by DeSO on heat map
+ggplot() +
+  #geom_sf(data=gothenburg.subdiv) +
+  geom_sf(data = got.boundary$osm_multipolygons, linewidth=0.5, colour="grey") +
+  geom_sf(data=got.sub.demo, alpha=0.7, aes(fill=round(foreign, 2)), linewidth=0.8) +
+  #geom_sf(data = streets$osm_lines, linewidth=0.2, color = 'black') +
+  coord_sf(xlim = c(11.71, 12.16), 
+           ylim = c(57.57, 57.86), expand = TRUE, clip = "on") +
+  labs(title="Percentage of residents with a foreign background",
+       subtitle = "By DeSO subdivision",
+       fill = "") +
+  scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous")) +
+  theme_custom
+```
+
+```{r map_deso_averages}
+# Plot average distances by DeSO on heat map
+ggplot() +
+  #geom_sf(data=gothenburg.subdiv) +
+  geom_sf(data = got.boundary$osm_multipolygons, linewidth=0.5, colour="grey") +
+  geom_sf(data=got.sub.new, alpha=0.7, aes(fill=round(avg_dist, 2)), linewidth=0.8) +
+  #geom_sf(data = streets$osm_lines, linewidth=0.2, color = 'black') +
+  coord_sf(xlim = c(11.71, 12.16), 
+           ylim = c(57.57, 57.86), expand = TRUE, clip = "on") +
+  labs(title="Average distance to public charging point in Gothenburg",
+       subtitle = "By DeSO subdivision",
+       fill = "Distance") +
+  scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous")) +
+  theme_custom
+```
+
+```{r map_rental_desos}
+# Filter out desos by rental majority areas
+got.sub.new.rentals <- got.sub.new %>% 
+  filter(deso %in% deso.demographics.rentals$deso)
+# Plot average distances by DeSO on heat map
+ggplot() +
+  #geom_sf(data=gothenburg.subdiv) +
+  geom_sf(data = got.boundary$osm_multipolygons, linewidth=0.5, colour="grey") +
+  geom_sf(data=got.sub.new, alpha=0.9, linewidth=0.6) +
+  geom_sf(data=got.sub.new.rentals, alpha=0.7, aes(fill=round(avg_dist, 2)), linewidth=0.8) +
+  #geom_sf(data = streets$osm_lines, linewidth=0.2, color = 'black') +
+  coord_sf(xlim = c(11.71, 12.16), 
+           ylim = c(57.57, 57.86), expand = TRUE, clip = "on") +
+  labs(title="Average distance to public charging point in Gothenburg",
+       subtitle = "DeSO subdivisions with min 75% rental housing",
+       fill = "Distance") +
+  scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous")) +
+  theme_custom
+```
+
+```{r demographics_ds}
+# Descriptive stats for full demographic data
+deso.demographics %>% 
+  rename("Nodes" = n, 
+         "Average distance to PEV charge point" = avg_dist,
+         "Area (m^2)" = area_m2,
+         "Population" = pop,
+         "Total households" = total_households,
+         "Swedish background" = swedish,
+         "Foreign background" = foreign,
+         "High school" = gymnasium,
+         "Middle school" = middle_school,
+         "Post high school (less than 3 yrs)" = post_gymnasium_less_than_3,
+         "Post high school (3 or more yrs)" = post_gymnasium_more_than_3,
+         "Rental apartment" = hyresrätt, 
+         "Owner-occupied apartment" = bostadsrätt, 
+         "Owner-occupied house" = äganderätt,
+         "Total cars on road" = bilar_i_trafik,
+         "Avg cars per household" = cars_per_household) %>%
+  select(-deso, -regso, -education_missing) %>% 
+  tbl_summary(., include=c(-ages),
+              statistic = list(all_continuous() ~ "{mean} ({min}, {max})")) %>%
+              modify_footnote(all_stat_cols() ~ "Mean (Minimun) (Maximum)") %>%
+              modify_caption("**Gothenburg city DeSO demographic data (All)** (N = {N})")
+```
+
+```{r demographics_rentals_ds}
+# Descriptive stats for full demographic data
+deso.demographics.rentals %>% 
+  rename("Nodes" = n, 
+         "Average distance to PEV charge point" = avg_dist,
+         "Area (m^2)" = area_m2,
+         "Population" = pop,
+         "Total households" = total_households,
+         "Swedish background" = swedish,
+         "Foreign background" = foreign,
+         "High school" = gymnasium,
+         "Middle school" = middle_school,
+         "Post high school (less than 3 yrs)" = post_gymnasium_less_than_3,
+         "Post high school (3 or more yrs)" = post_gymnasium_more_than_3,
+         "Rental apartment" = hyresrätt, 
+         "Owner-occupied apartment" = bostadsrätt, 
+         "Owner-occupied house" = äganderätt,
+         "Total cars on road" = bilar_i_trafik,
+         "Avg cars per household" = cars_per_household) %>%
+  select(-deso, -regso, -education_missing) %>% 
+  tbl_summary(., include=c(-ages),
+              statistic = list(all_continuous() ~ "{mean} ({min}, {max})")) %>%
+              modify_footnote(all_stat_cols() ~ "Mean (Minimun) (Maximum)") %>%
+              modify_caption("**Gothenburg city DeSO demographic data
+                             (areas with at least 75% rental apartment housing)** (N = {N})")
+```
+```
