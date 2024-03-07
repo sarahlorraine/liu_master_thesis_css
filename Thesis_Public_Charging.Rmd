@@ -163,16 +163,18 @@ p2p.data <- p2p.data %>% mutate(lng = lon) %>% filter(powerRange.min > 0)
 # Filter out charge points outside of Gothenburg coords
 p2p.data <- p2p.data %>% filter(between(lng, coords[1,1], coords[1,2]) &
                                                     between(lat,coords[2,1], coords[2,2]))
+
+charge_points.p2p <- p2p.data %>% select(lat, lng)
+
 # spatial join of subdivisions and charge points
 charge_points.p2p.geo <- st_as_sf(charge_points.p2p, coords = c("lng", "lat"), crs = 4326) %>% rownames_to_column(., "charge_id")
-charge_points.p2p.geo <- st_filter(charge_points.p2p.geo, got.sub.new)
+#charge_points.p2p.geo <- st_filter(charge_points.p2p.geo, got.sub.new)
 
 # Save cleaned and merged data as csv
 #write_csv(p2p.long_lat, "p2p_data_long_lat.csv")
 #write_csv(p2p.data, "p2p_data_complete.csv")
 #p2p.data <- read_csv("p2p_data_complete.csv")
 
-charge_points.p2p <- p2p.data %>% select(lat, lng) 
 # Google places API alternative using 'googleway'
 # res <- google_places(
 #   search_string = NULL,
@@ -355,15 +357,16 @@ Calculate the closest charge point to a node/intersection using K nearest neighb
 ### Find the K nearest neighbour charging point to each node (KNN)
 knn.5 <- nn2(p2p.long_lat.matrix, 
     query = nodes.coords,
-    k = 5,
+    #k = 5,
     treetype = "kd",
     eps = 0)
-
-# knn.5.nodes <- nn2(p2p.long_lat.matrix, 
-#              query = nodes.coords, 
-#              k = 5,
-#              treetype = "bd",
-#              eps = 0)
+?nn2
+# Calculate closest nodes to each charge point using KNN 5
+knn.5.nodes <- nn2(nodes.coords, 
+             query = p2p.long_lat.matrix,
+             k = 5,
+             treetype = "kd",
+             eps = 0)
 
 knn.radius <- nn2(p2p.long_lat.matrix, 
              query = nodes.coords, 
@@ -392,30 +395,15 @@ nodes.coords.knn <- cbind(nodes.coords, closest) %>%
   mutate(Lon = X, Lat = Y) %>% select(-X, -Y)
 ```
 
-### Dijkstra's graph search (shorted path)
+```{r extract_closest_from_knn_5.nodes}
+### Function for selecting the node with the closest distance from KNN
+closest.nodes <- data.frame()
+for (i in 1:nrow(knn.5.nodes[[2]])) {
+  new_elements <- getMinKnn(i, knn.5.nodes$nn.idx, knn.5.nodes$nn.dists)
+  closest.nodes <- rbind(closest.nodes, new_elements)
+}
 
-Alternative more "accurate" measure for shortest paths what considering road networks and driveability.
-
-```{r dijkstras_graph_search}
-####--- Finding the shortest path to the nodes and points (Dijkstra's) (graph search)
-#### !!!! WIP
-# from_node <- graph %>%
-#   activate(nodes) %>%
-#   filter(nodeID == 34) %>%
-#   pull(nodeID)
-# 
-# to_node <- graph %>%
-#   activate(nodes) %>%
-#   filter(nodeID == 3) %>%
-#   pull(nodeID)
-# 
-# path <- shortest_paths(
-#   graph = graph,
-#   from = from_node,
-#   to = to_node,
-#   output = 'both',
-#   weights = graph %>% activate(edges) %>% pull(length)
-# )
+colnames(closest.nodes) <- c("node_id", "distance")
 ```
 
 ### Snap charge points to nodes
@@ -438,11 +426,44 @@ getSnapPoint <- function(node) {
   snap_point <- nodes.df[snap_node,]$geometry
   return(snap_point)
 }
+
+na_charge_list <- data.frame()
+checkNa <- function(charge) {
+  i <- match(charge, snap_matrix[,2])
+  snap_node <- as.integer(snap_matrix[i,]$node_id)
+  snap_point_id <- nodes.sf[snap_node,]$nodeID
+  return(data.frame(snap_node, charge))
+}
+
+for (i in 1:nrow(charge_points.p2p.geo)) {
+  new_elements <- checkNa(charge_points.p2p.geo$charge_id[i])
+ # To check which values are null
+  na_charge_list <- ifelse(is.na(new_elements[1]), 
+       rbind(na_charge_list, new_elements[2]), na_charge_list)
+}
+na_charge_list <- na_charge_list[[1]]
+
+getNodePoint <- function(charge) {
+  i <- match(charge, snap_matrix[,2])
+  snap_node <- as.integer(snap_matrix[i,]$node_id)
+  snap_point_id <- nodes.sf[snap_node,]$nodeID
+  return(snap_point_id)
+}
+
+charge_points.p2p.geo.nodes <- charge_points.p2p.geo %>% 
+  mutate(nodeId = mapply(getNodePoint, charge_id)) %>%
+  select(charge_id, nodeId) %>%
+  as_tibble() %>%
+  st_as_sf(crs = 4326)
+
+charge_points.p2p.geo.nodes %>% filter(is.na(nodeId))
+
 charge_points.p2p.geo.snaps <- charge_points.p2p.geo %>% 
   mutate(geometry = mapply(getSnapPoint, charge_id)) %>%
   select(charge_id, geometry) %>%
   as_tibble() %>%
   st_as_sf(crs = 4326)
+
 ```
 
 ```{r plot_network_graph, eval=TRUE, include=TRUE}
@@ -494,6 +515,58 @@ graph.charge_only <- graph %>% filter(edgeID %in% edges.charge_only$edgeID)
 
 ```
 
+### Dijkstra's graph search (shorted path)
+
+Alternative more "accurate" measure for shortest paths what considering road networks and driveability.
+
+```{r dijkstras_graph_search}
+####--- Finding the shortest path to the nodes and points (Dijkstra's) (graph search)
+#### !!!! WIP This does not work as expected
+### Current issues: The complete set of charge points is not being included in these results, and the final path graph is incomplete. 
+# From node is the charge point
+from_node <- graph %>%
+  activate(nodes) %>%
+  filter(nodeID %in% snap_matrix[[1]]) %>%
+  pull(nodeID)
+ 
+# to node is the closest node in the network 
+to_node <- graph %>%
+  activate(nodes) %>%
+  filter(nodeID %in% closest.nodes$node_id) %>%
+  pull(nodeID)
+
+# Get the shortest path between each of these points
+path <- shortest_paths(
+  graph = graph,
+  from = from_node,
+  to = to_node,
+  output = 'both',
+  weights = graph %>% activate(edges) %>% pull(length)
+)
+
+path_graph <- graph %>%
+    subgraph.edges(eids = path$epath %>% unlist()) %>%
+    as_tbl_graph()
+
+#This subgraph can now be analyzed, for example by calculating the total length of the path
+path_graph %>%
+  activate(edges) %>%
+  as_tibble() %>%
+  summarise(length = sum(length))
+
+ggplot() +
+  geom_sf(data = graph %>% activate(edges) %>% as_tibble() %>% st_as_sf(), col = 'darkgrey') +
+  #geom_sf(data = graph %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), col = 'darkgrey', size = 0.5) +
+  geom_sf(data=gothenburg.subdiv, alpha=0.6, linewidth=0.6, colour="#8778D7", fill="#90C59B") +
+  geom_sf(data = path_graph %>% activate(edges) %>% as_tibble() %>% st_as_sf(), lwd = 1, col = 'firebrick') +
+  geom_sf(data = path_graph %>% activate(nodes) %>% filter(nodeID %in% c(from_node)) %>% as_tibble() %>% st_as_sf(),col = 'blue', size = 1) +
+  geom_sf(data = path_graph %>% activate(nodes) %>% filter(nodeID %in% c(to_node)) %>% as_tibble() %>% st_as_sf(),col = 'green', size = 1) +
+  geom_sf(data = charge_points.p2p.geo %>% filter(charge_id %in% c(na_charge_list)), size=1.5, color="orange") +
+  coord_sf(xlim = c(11.71, 12.16), 
+           ylim = c(57.58, 57.86), 
+           expand = TRUE, clip = "on")
+```
+
 ### Accessibility measures
 
 Using a measure for potential accessibility by distance decay. Operationalized as a negative exponential function for surrounding nodes
@@ -501,7 +574,7 @@ Using a measure for potential accessibility by distance decay. Operationalized a
 ```{r prepare_data_accessibility, include=FALSE}
 # https://cran.r-project.org/web/packages/accessibility/vignettes/accessibility.html
 # Setup network to be compatibile for accessibility functions
-distance_travel_matrix <- graph.charge_only %>% activate(nodes) %>% 
+distance_travel_matrix <- path_graph %>% activate(nodes) %>% 
   as_data_frame() %>% 
   mutate(from_id = from, to_id = to, length = as.numeric(length)) %>% 
   select(from_id, to_id, length)
@@ -581,14 +654,15 @@ filtered.nodes <- st_filter(nodes.averages, gothenburg.subdiv)
 
 joined.nodes <- st_join(filtered.nodes, got.sub.new, join = st_within, left=TRUE)
 joined.nodes <- joined.nodes %>% 
-  mutate(knn_distance = knn_distance) %>% 
+  mutate(knn_distance = knn_distance * 1000,
+         distance_decay_accessibility = distance_decay_accessibility * 1000) %>% 
   mutate(distance_level = mapply(getDistanceLevel, knn_distance))
 
 avg_dist_deso <- joined.nodes %>% as_tibble() %>% 
   group_by(deso) %>% 
   summarise(nodes = n(),
-            avg_dist = mean(knn_distance) * 1000,
-            avg_dd_accessibility = mean(distance_decay_accessibility)) %>%
+            avg_dist = mean(knn_distance),
+            avg_dd_accessibility = mean(distance_decay_accessibility, na.rm = TRUE)) %>% ### Make sure to handle this na in the results analysis
   arrange(avg_dd_accessibility) ## drop_na() ?
 
 avg_dist_deso <- merge(avg_dist_deso, regSO_deso_table) %>% 
@@ -720,6 +794,7 @@ deso.demographics <- deso_aream2 %>%
   mutate(cars_per_household = bilar_i_trafik / total_households) %>%
   select(deso, regso, nodes, avg_dist,  everything()) %>%
   arrange(desc(avg_dist))
+
 view(deso.demographics)
 
 deso.demographics.WOMajorityHouses <- deso.demographics %>%
@@ -730,18 +805,22 @@ deso.demographics.rentals <- deso.demographics %>%
   # Filter out desos with majority houses
   filter(hyresrätt > 0.50)
 
-deso.demographics.rentals %>% arrange(desc(avg_dist)) %>% view()
-avg_dist_deso %>% arrange(desc(avg_dist)) %>% view()
+# deso.demographics.rentals %>% arrange(desc(avg_dist)) %>% view()
+# avg_dist_deso %>% arrange(desc(avg_dist)) %>% view()
 regso.list %>% arrange(regso)
+
+# # Writre files to csv if needed
+# write_csv(deso.demographics %>% select(-ages), "data/deso_demographics.csv")
+# write.csv(deso.demographics.rentals %>% select(-ages), "data/deso_demographics_rentals.csv")
 ```
 
 ### Logistic regressions
 
 ```{r lm_models_all, eval=TRUE, include=TRUE}
-model1 <- lm(avg_dist~foreign+nodes+äganderätt+total_households, 
+model1 <- lm(avg_dist~foreign+nodes+äganderätt+total_households+avg_dd_accessibility, 
              data = deso.demographics)
 summary(model1)
-model2 <- lm(avg_dist~foreign+nodes+äganderätt+`Median income tkr`, 
+model2 <- lm(avg_dist~foreign+nodes+äganderätt+`Median income tkr`,
              data = deso.demographics)
 summary(model2)
 model3 <- lm(avg_dist~foreign+nodes+äganderätt+post_gymnasium_more_than_3, 

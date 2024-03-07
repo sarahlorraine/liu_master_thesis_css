@@ -49,9 +49,22 @@ tbl_summary(.,
 ```
 
 ```{r nodes_ds}
-# Descriptive Stats for nodes
-
+# Descriptive Stats for nodes in Gothenburg road network
+joined.nodes %>% as_tibble() %>%
+# rename("Latitude" = lat,
+#        "Longitude" = lon,
+#        "Car charging" = vehicleTypes.car,
+#        "Motorbike charging" = vehicleTypes.motorbike,
+#        "Electic bike charging" = vehicleTypes.bike,
+#        "Min power range" = powerRange.min,
+#        "Max power range" = powerRange.max,
+#        "Fast charger (50kwh+)" = isFastCharge) %>%
+tbl_summary(.,
+            include = c(nodeID, knn_chargeId, knn_distance, distance_level),
+            statistic = list(all_continuous() ~ "{mean} ({min}, {max})")) %>%
+            modify_caption("**Road network nodes in Gothenburg city** (N = {N})")
 ```
+
 
 ```{r map_charge_points}
 ## Plot map with charge points
@@ -60,10 +73,10 @@ ggplot() +
   #geom_sf(data = land$osm_lines, color = 'light blue') + 
   #geom_sf(data = forest$osm_polygons, fill = 'dark green', color="dark green") +
   #geom_sf(data = parks$osm_polygons, fill = '#94ba8e', color="dark green") +
-  geom_sf(data = got.boundary$osm_multipolygons, linewidth=0.5, colour="grey") +
-  geom_sf(data=gothenburg.subdiv, alpha=0.6, linewidth=0.6, colour="#8778D7", fill="#90C59B") +
-    geom_sf(data = streets$osm_lines, linewidth=0.2,alpha=0.5, color = '#1e00be') +
-  geom_sf(data = main_streets$osm_lines, alpha=0.5, color = "#1e00be", linewidth=0.6) + 
+  #geom_sf(data = got.boundary$osm_multipolygons, linewidth=0.5, colour="grey") +
+  #geom_sf(data=gothenburg.subdiv, alpha=0.6, linewidth=0.6, colour="#8778D7", fill="#90C59B") +
+  geom_sf(data = streets$osm_lines, linewidth=0.2,alpha=0.5, color = '#1e00be') +
+  #geom_sf(data = main_streets$osm_lines, alpha=0.5, color = "#1e00be", linewidth=0.6) + 
   geom_sf(data = charge_points.p2p.geo, size=0.8, color="#1e00be") +
   coord_sf(xlim = c(11.71, 12.16), 
            ylim = c(57.58, 57.86), 
@@ -75,7 +88,8 @@ ggplot() +
 ```
 
 ```{r map_nodes}
-## Plot map with nodes and 
+## Plot map with node points and their color coded distance values
+joined.nodes
 ggplot() +
   #geom_sf(data = streets$osm_lines, linewidth=0.2, color = '#1e00be') +
   #geom_sf(data = main_streets$osm_lines, alpha=0.8, color = "#1e00be", linewidth=0.6) + 
