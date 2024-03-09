@@ -21,6 +21,7 @@ library(tidyverse)
 library(jsonlite)
 library(tmaptools)
 library(gtsummary)
+library(stringr)
 library(wesanderson)
 
 ## GiS handling
@@ -427,6 +428,7 @@ getSnapPoint <- function(node) {
   return(snap_point)
 }
 
+# Check to ensure working function and no NAs
 na_charge_list <- data.frame()
 checkNa <- function(charge) {
   i <- match(charge, snap_matrix[,2])
@@ -463,6 +465,13 @@ charge_points.p2p.geo.snaps <- charge_points.p2p.geo %>%
   select(charge_id, geometry) %>%
   as_tibble() %>%
   st_as_sf(crs = 4326)
+
+## Merge the charge point data with the original graph
+### TODO
+# Get the number of chargers per point here, rather than defaulting to 1
+graph.merged <- graph %>% 
+  activate(nodes) %>% 
+  mutate(charge_points = ifelse(nodeID %in% charge_points.p2p.geo.nodes$nodeId, 1, 0))
 
 ```
 
@@ -520,31 +529,35 @@ graph.charge_only <- graph %>% filter(edgeID %in% edges.charge_only$edgeID)
 Alternative more "accurate" measure for shortest paths what considering road networks and driveability.
 
 ```{r dijkstras_graph_search}
+## Alternative
+#stplanr
+
+
 ####--- Finding the shortest path to the nodes and points (Dijkstra's) (graph search)
 #### !!!! WIP This does not work as expected
 ### Current issues: The complete set of charge points is not being included in these results, and the final path graph is incomplete. 
 # From node is the charge point
-from_node <- graph %>%
+from_node <- graph.merged %>%
   activate(nodes) %>%
   filter(nodeID %in% snap_matrix[[1]]) %>%
   pull(nodeID)
  
 # to node is the closest node in the network 
-to_node <- graph %>%
+to_node <- graph.merged %>%
   activate(nodes) %>%
   filter(nodeID %in% closest.nodes$node_id) %>%
   pull(nodeID)
 
 # Get the shortest path between each of these points
 path <- shortest_paths(
-  graph = graph,
+  graph = graph.merged,
   from = from_node,
   to = to_node,
   output = 'both',
   weights = graph %>% activate(edges) %>% pull(length)
 )
 
-path_graph <- graph %>%
+path_graph <- graph.merged %>%
     subgraph.edges(eids = path$epath %>% unlist()) %>%
     as_tbl_graph()
 
@@ -573,33 +586,46 @@ Using a measure for potential accessibility by distance decay. Operationalized a
 
 ```{r prepare_data_accessibility, include=FALSE}
 # https://cran.r-project.org/web/packages/accessibility/vignettes/accessibility.html
-# Setup network to be compatibile for accessibility functions
-distance_travel_matrix <- path_graph %>% activate(nodes) %>% 
+# Setup network to be compatible for accessibility functions
+
+# Create a distance travel matrix
+distance_travel_matrix <- graph %>% activate(nodes) %>% 
   as_data_frame() %>% 
-  mutate(from_id = from, to_id = to, length = as.numeric(length)) %>% 
+  mutate(from_id = from, to_id = to, 
+         length = as.numeric(length)) %>% 
   select(from_id, to_id, length)
 
+# Find  the number of charge points
 count_occurance_cp <- closest %>% count(charge_id) %>% 
   rownames_to_column(., var = "node_id") %>%
   select(node_id, charge_id, n)
 
-charge_land_use <- closest %>% 
-  left_join(.,count_occurance_cp, by="charge_id", keep = TRUE) %>%
-  mutate(id = as.numeric(rownames(closest)), charge_points = n, charge_id=charge_id.x) %>% 
+# charge_land_use <- count_occurance_cp %>% 
+#   rename(nodeID = "node_id") %>%
+#   left_join(count_occurance_cp, path_graph.df, by="nodeID", keep = TRUE) %>%
+#   mutate(id = as.numeric(rownames(closest)), charge_points = n, charge_id=charge_id.x) %>% 
+#   select(id, charge_points)
+
+charge_land_use <- graph.merged %>% 
+  rename(id = "nodeID") %>% 
+  as_data_frame(., what="vertices") %>%
   select(id, charge_points)
 
 ```
 
 ```{r potential_accessibility_func, include=FALSE}
-
+?gravity
 # Potential function (distance decay)
-negative_exp <- gravity(
+# The potential accessibility
+# measure estimates the accessibility of opportunities in zone i to all other zones (n) in which smaller and/or more distant opportunities provide diminishing influences. The measure has the following form, assuming a negative exponential cost function:
+  negative_exp <- gravity(
   distance_travel_matrix,
   charge_land_use,
   opportunity = "charge_points",
   travel_cost = "length",
-  decay_function = decay_exponential(decay_value = 0.2)
+  decay_function = decay_exponential(decay_value = 0.5)
 )
+  negative_exp %>% arrange(desc(charge_points))
 ```
 
 ### Calculate average distance by DeSO subdivisions
@@ -709,8 +735,10 @@ got.sub.new %>% as_tibble() %>%
        y="") +
   theme_light()
 
-ggplot(got.sub.new, aes(x=as.factor(regso), y=avg_dist, size=nodes)) +
+ggplot(got.sub.new, aes(x=as.factor(regso), y=log(avg_dd_accessibility), size=nodes)) +
   geom_point(alpha=0.7)
+# avg_dd_accessibility
+got.sub.new %>% arrange(desc(avg_dd_accessibility))
 ```
 
 ## Analysis
@@ -805,11 +833,14 @@ deso.demographics.rentals <- deso.demographics %>%
   # Filter out desos with majority houses
   filter(hyresrätt > 0.50)
 
+deso.demographics.owner.occupied <- deso.demographics %>%
+filter(äganderätt >= 0.75 | bostadsrätt >= 0.75)
+
 # deso.demographics.rentals %>% arrange(desc(avg_dist)) %>% view()
 # avg_dist_deso %>% arrange(desc(avg_dist)) %>% view()
 regso.list %>% arrange(regso)
 
-# # Writre files to csv if needed
+# # Write files to csv if needed
 # write_csv(deso.demographics %>% select(-ages), "data/deso_demographics.csv")
 # write.csv(deso.demographics.rentals %>% select(-ages), "data/deso_demographics_rentals.csv")
 ```
@@ -817,7 +848,7 @@ regso.list %>% arrange(regso)
 ### Logistic regressions
 
 ```{r lm_models_all, eval=TRUE, include=TRUE}
-model1 <- lm(avg_dist~foreign+nodes+äganderätt+total_households+avg_dd_accessibility, 
+model1 <- lm(avg_dist~foreign+nodes+äganderätt+total_households, 
              data = deso.demographics)
 summary(model1)
 model2 <- lm(avg_dist~foreign+nodes+äganderätt+`Median income tkr`,
@@ -829,7 +860,7 @@ summary(model3)
 ```
 
 ```{r lm_models_rental_areas, eval=TRUE, include=TRUE}
-model1.rentals <- lm(avg_dist~foreign+nodes, 
+model1.rentals <- lm(avg_dist~foreign+nodes+total_households, 
              data = deso.demographics.rentals)
 summary(model1.rentals)
 model2.rentals <- lm(avg_dist~foreign+nodes+`Median income tkr`, 
@@ -865,7 +896,7 @@ corr_matrix <- cor(deso.demographics.normalized)
 
 ```{r setup_pca_matrix}
 #### PCA and Correlations matrix
-deso.demographics.pca <- deso.demographics.rentals %>% select(-deso, -regso, -nodes, -ages, -avg_dd_accessibility)
+deso.demographics.pca <- deso.demographics.rentals %>% select(-deso, -regso, -nodes, -ages)
 deso.demographics.normalized <- scale(deso.demographics.pca)
 corr_matrix <- cor(deso.demographics.normalized)
 ```

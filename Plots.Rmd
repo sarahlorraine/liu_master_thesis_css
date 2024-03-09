@@ -77,7 +77,7 @@ ggplot() +
   #geom_sf(data=gothenburg.subdiv, alpha=0.6, linewidth=0.6, colour="#8778D7", fill="#90C59B") +
   geom_sf(data = streets$osm_lines, linewidth=0.2,alpha=0.5, color = '#1e00be') +
   #geom_sf(data = main_streets$osm_lines, alpha=0.5, color = "#1e00be", linewidth=0.6) + 
-  geom_sf(data = charge_points.p2p.geo, size=0.8, color="#1e00be") +
+  geom_sf(data = charge_points.p2p.geo %>% filter(charge_id =="157"), size=0.8, color="#1e00be") +
   coord_sf(xlim = c(11.71, 12.16), 
            ylim = c(57.58, 57.86), 
            expand = TRUE, clip="on") +
@@ -130,14 +130,15 @@ ggplot() +
 ggplot() +
   #geom_sf(data=gothenburg.subdiv) +
   geom_sf(data = got.boundary$osm_multipolygons, linewidth=0.5, colour="grey") +
-  geom_sf(data=got.sub.new, alpha=0.7, aes(fill=round(avg_dist, 2)), linewidth=0.8) +
+  geom_sf(data=got.sub.new, alpha=0.7, aes(fill=log10(avg_dist)), linewidth=0.8) +
   #geom_sf(data = streets$osm_lines, linewidth=0.2, color = 'black') +
   coord_sf(xlim = c(11.71, 12.16), 
            ylim = c(57.57, 57.86), expand = TRUE, clip = "on") +
   labs(title="Average distance to public charging point in Gothenburg",
        subtitle = "By DeSO subdivision",
        fill = "Distance") +
-  scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous")) +
+  scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous"),
+                       limits= c(0, max(log10(got.sub.new$avg_dist)))) +
   theme_custom
 ```
 
@@ -150,14 +151,37 @@ ggplot() +
   #geom_sf(data=gothenburg.subdiv) +
   geom_sf(data = got.boundary$osm_multipolygons, linewidth=0.5, colour="grey") +
   geom_sf(data=got.sub.new, alpha=0.9, linewidth=0.6) +
-  geom_sf(data=got.sub.new.rentals, alpha=0.7, aes(fill=round(avg_dist, 2)), linewidth=0.8) +
+  geom_sf(data=got.sub.new.rentals, alpha=0.7, aes(fill=log10(avg_dist)), linewidth=0.8) +
   #geom_sf(data = streets$osm_lines, linewidth=0.2, color = 'black') +
   coord_sf(xlim = c(11.71, 12.16), 
            ylim = c(57.57, 57.86), expand = TRUE, clip = "on") +
   labs(title="Average distance to public charging point in Gothenburg",
        subtitle = "DeSO subdivisions with min 75% rental housing",
        fill = "Distance") +
-  scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous")) +
+  scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous"),
+                       limits= c(0, max(log10(got.sub.new$avg_dist)))) +
+  theme_custom
+```
+
+```{r map_rental_desos}
+# Filter out desos by rental majority areas
+got.sub.new.owner.occupied <- got.sub.new %>% 
+  filter(deso %in% deso.demographics.owner.occupied$deso)
+# Plot average distances by DeSO on heat map
+ggplot() +
+  #geom_sf(data=gothenburg.subdiv) +
+  geom_sf(data = got.boundary$osm_multipolygons, linewidth=0.5, colour="grey") +
+  geom_sf(data=got.sub.new, alpha=0.9, linewidth=0.6) +
+  geom_sf(data=got.sub.new.owner.occupied, alpha=0.7, aes(fill=log10(avg_dist)), linewidth=0.8) +
+  #geom_sf(data = streets$osm_lines, linewidth=0.2, color = 'black') +
+  coord_sf(xlim = c(11.71, 12.16), 
+           ylim = c(57.57, 57.86), expand = TRUE, clip = "on") +
+  labs(title="Average distance to public charging point in Gothenburg",
+       subtitle = "DeSO subdivisions with min 75% owner-occupied housing",
+       fill = "Distance",
+       caption = str_wrap("Owner-occupied included all housing that is with owned outright by the resident, often a freestanding house and land (äganderätt), as well as owned apartments with a building managed by a body corporate (bostadsrätt). In both of these housing types, the residents have some or full control over facilities available to residents.", 100)) +
+  scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous"),
+                       limits= c(0, max(log10(got.sub.new$avg_dist)))) +
   theme_custom
 ```
 
