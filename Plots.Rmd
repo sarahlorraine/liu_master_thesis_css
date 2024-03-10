@@ -75,9 +75,9 @@ ggplot() +
   #geom_sf(data = parks$osm_polygons, fill = '#94ba8e', color="dark green") +
   #geom_sf(data = got.boundary$osm_multipolygons, linewidth=0.5, colour="grey") +
   #geom_sf(data=gothenburg.subdiv, alpha=0.6, linewidth=0.6, colour="#8778D7", fill="#90C59B") +
-  geom_sf(data = streets$osm_lines, linewidth=0.2,alpha=0.5, color = '#1e00be') +
+  geom_sf(data = streets$osm_lines, linewidth=0.2, color = '#1e00be') +
   #geom_sf(data = main_streets$osm_lines, alpha=0.5, color = "#1e00be", linewidth=0.6) + 
-  geom_sf(data = charge_points.p2p.geo %>% filter(charge_id =="157"), size=0.8, color="#1e00be") +
+  geom_sf(data = charge_points.p2p.geo, size=0.8, color="#1e00be") +
   coord_sf(xlim = c(11.71, 12.16), 
            ylim = c(57.58, 57.86), 
            expand = TRUE, clip="on") +
@@ -89,7 +89,6 @@ ggplot() +
 
 ```{r map_nodes}
 ## Plot map with node points and their color coded distance values
-joined.nodes
 ggplot() +
   #geom_sf(data = streets$osm_lines, linewidth=0.2, color = '#1e00be') +
   #geom_sf(data = main_streets$osm_lines, alpha=0.8, color = "#1e00be", linewidth=0.6) + 
