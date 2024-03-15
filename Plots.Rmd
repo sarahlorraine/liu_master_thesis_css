@@ -41,16 +41,11 @@ rename("Latitude" = lat,
        "Electic bike charging" = vehicleTypes.bike,
        "Min power range" = powerRange.min,
        "Max power range" = powerRange.max,
-       "Fast charger (50kwh+)" = isFastCharge) %>%
-tbl_summary(.,
-            include = c(-id, -full_address, -status, -lng),
-            statistic = list(all_continuous() ~ "{mean} ({min}, {max})")) %>%
-            modify_caption("**PEV public charge points across Gothenburg city** (N = {N})")
-```
-
-```{r nodes_ds}
-# Descriptive Stats for nodes in Gothenburg road network
-joined.nodes %>% as_tibble() %>%
+       "Fast charger (50kwh+)" = isFastCharge) %>% 
+  select(-id, -full_address, -status, -lng) %>%
+  stargazer::stargazer(type="latex", style="asr", title = "PEV public charge points across Gothenburg city", notes = "Charging point data sources from Place to Plug")
+# 
+# p2p.data %>%
 # rename("Latitude" = lat,
 #        "Longitude" = lon,
 #        "Car charging" = vehicleTypes.car,
@@ -59,10 +54,31 @@ joined.nodes %>% as_tibble() %>%
 #        "Min power range" = powerRange.min,
 #        "Max power range" = powerRange.max,
 #        "Fast charger (50kwh+)" = isFastCharge) %>%
-tbl_summary(.,
+# tbl_summary(.,
+#             include = c(-id, -full_address, -status, -lng),
+#             statistic = list(all_continuous() ~ "{mean} ({min}, {max})")) %>%
+#             modify_caption("**PEV public charge points across Gothenburg city** (N = {N})") %>% as_gt() %>% gt::as_latex()
+```
+
+```{r nodes_ds}
+# Descriptive Stats for nodes in Gothenburg road network
+joined.nodes %>% as_tibble() %>% 
+  select(nodeID, knn_chargeId, knn_distance, distance_level) %>%
+# rename("Latitude" = lat,
+#        "Longitude" = lon,
+#        "Car charging" = vehicleTypes.car,
+#        "Motorbike charging" = vehicleTypes.motorbike,
+#        "Electic bike charging" = vehicleTypes.bike,
+#        "Min power range" = powerRange.min,
+#        "Max power range" = powerRange.max,
+#        "Fast charger (50kwh+)" = isFastCharge) %>%
+  tbl_summary(.,
             include = c(nodeID, knn_chargeId, knn_distance, distance_level),
             statistic = list(all_continuous() ~ "{mean} ({min}, {max})")) %>%
             modify_caption("**Road network nodes in Gothenburg city** (N = {N})")
+
+#stargazer::stargazer(type="latex", style="asr", title = "PEV public charge points across Gothenburg city", notes = "Charging point data sources from Place to Plug")
+
 ```
 
 

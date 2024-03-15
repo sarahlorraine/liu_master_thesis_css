@@ -13,9 +13,11 @@ library(tidyverse)
 library(jsonlite)
 library(tmaptools)
 library(gtsummary)
+library(stargazer)
 library(stringr)
 library(wesanderson)
 library(knitr)
+library(rlist)
 
 ## GiS handling
 library(osmdata)
@@ -27,10 +29,14 @@ library(ggmap)
 ## Routing Analysis
 library(sfnetworks)
 library(igraph)
+library(netdiffuseR)
 library(tidygraph)
 library(cppRouting)
 library(tidygraph)
 library(RANN)
+library(dodgr)
+library(stplanr)
+
 # Accessibility
 library(accessibility)
 library(r5r)
@@ -63,7 +69,7 @@ key <- paste(read_file(paste0(dirname(getwd()), "/gm_api_key.txt")), collapse="\
 ```{r load_environment, eval=TRUE}
 ## Placeholders to be able to save and load heavy datasets and variables
 #load('Charge_Environment.RData')
-#save.image(file='Charge_Environment.RData')
+save.image(file='Charge_Environment.RData')
 #save(streets, file="streets.RData")
 ```
 
@@ -138,7 +144,7 @@ view(ex.chargepoint.demographics$data$chargingZone$stations %>% as_tibble())
 #register_google(key = key, write=TRUE)
 # Fetch long and lat for the charging point
 #p2p.long_lat <- geocode(tolower(p2p.data$full_address))
-p2p.long_lat <- read_csv("p2p_data_long_lat.csv")
+p2p.long_lat <- read_csv("data/p2p_data_long_lat.csv")
 p2p.data <- p2p.data %>% mutate(p2p.long_lat)
 # Plug types
 #IEC_62196_T2
@@ -204,14 +210,14 @@ charge_points.p2p.geo <- st_as_sf(charge_points.p2p, coords = c("lng", "lat"), c
 ```{r fetch_base_network, include=FALSE}
 main_st <- data.frame(type = c("motorway","trunk","primary","motorway_junction","trunk_link","primary_link","motorway_link"))
 st <- data.frame(type = available_tags('highway')$Value)
-st <- subset(st, !type %in% main_st$type)
-st_special <- data.frame(type = c("footway", "path","steps", "service", "cycleway", "track", "corridor", "via_ferrata", "pedestrian", "busway", "bus_guideway", "bridleway", "escape"))
-non_vehicle <- data.frame(type = c("footway", "path", "steps", "cycleway", "corridor", "pedestrian","track", "bridleway"))
-st <- subset(st, !type %in% st_special$type)
+non_vehicle <- data.frame(type = c("footway", "path", "steps", "cycleway", "corridor", "pedestrian", "track", "bridleway", "bus_guideway", "busway", "bus_stop", "construction", "elevator", "proposed", "street_lamp"))
+
+st <- subset(st, !type %in% main_st$type & !type %in% non_vehicle$type)
+
+
+## Save as character strings
 st <- as.character(st$type)
 main_st <- as.character(main_st$type)
-st_special <- subset(st_special, !type %in% non_vehicle$type)
-st_special <- as.character(st_special$type)
 
 water <- location %>%
   add_osm_feature(key = "natural", 
@@ -224,10 +230,6 @@ main_streets <- location %>%
 streets <- location %>%
   add_osm_feature(key = "highway", 
                   value = st) %>% osmdata_sf()
-
-st_special <- location %>%
-  add_osm_feature(key = "highway", 
-                  value = st_special) %>% osmdata_sf()
 
 # parks <- location %>% add_osm_feature(key = "leisure", 
 #                                       value = c("park","nature_reserve","recreation_ground","golf_course","pitch","garden")) %>%
@@ -275,10 +277,9 @@ land <- location %>%
 ```{r setup_network_graph, include=FALSE}
 ##### Preparing Graph of nodes and edges #####
 
-### Bind the relevent streets and paths into one set 
+### Bind the relevant streets and paths into one set 
 got_streets <- rbind((streets$osm_lines %>% select(highway)), 
-                     main_streets$osm_lines %>% select(highway)) %>% 
-               rbind(., st_special$osm_lines %>% select(highway))
+                     main_streets$osm_lines %>% select(highway))
 
 # Give each edge a unique index
 edges <- got_streets %>% 
@@ -324,6 +325,9 @@ nodes <- nodes %>%
 # Create a graph from the adjacency matrix
 graph <- tbl_graph(nodes = nodes, edges = as_tibble(edges), directed = FALSE)
 
+# Identify isolate nodes in the graph
+isolated(as_adjacency_matrix(graph)) %>% as_tibble() %>% filter(value==TRUE)
+
 # The activate() verb specifies if we want to manipulate the edges or the nodes. 
 graph <- graph %>%
   activate(edges) %>%
@@ -352,7 +356,7 @@ Calculate the closest charge point to a node/intersection using K nearest neighb
 
 ```{r setup_knn_nearest_point}
 
-#### FINDING NEAREST POINT #####
+#### FINDING NEAREST POINTS #####
 
 ### As the crow flies method
 ### RANN nn2
@@ -363,6 +367,8 @@ knn.5 <- nn2(p2p.long_lat.matrix,
     treetype = "kd",
     eps = 0)
 
+#### FINDING NEAREST NODES #####
+
 # Calculate closest nodes to each charge point using KNN 5
 knn.5.nodes <- nn2(nodes.coords, 
              query = p2p.long_lat.matrix,
@@ -370,8 +376,9 @@ knn.5.nodes <- nn2(nodes.coords,
              treetype = "kd",
              eps = 0)
 
-knn.radius <- nn2(p2p.long_lat.matrix, 
-             query = nodes.coords, 
+# Calculate closest nodes to each charge point using KNN 5 Radius
+knn.radius <- nn2(nodes.coords, 
+             query = p2p.long_lat.matrix,
              k = 5,
              treetype = "kd", 
              searchtype = "radius", 
@@ -388,6 +395,7 @@ getMinKnn <- function(i, ids, distances) {
 
 closest <- data.frame()
 for (i in 1:nrow(knn.5[[2]])) {
+  print("running: i of", nrow(knn.5[[2]]))
   new_elements <- getMinKnn(i, knn.5$nn.idx, knn.5$nn.dists)
   closest <- rbind(closest, new_elements)
 }
@@ -408,17 +416,29 @@ for (i in 1:nrow(knn.5.nodes[[2]])) {
 colnames(closest.nodes) <- c("node_id", "distance")
 ```
 
+```{r extract_closest_from_knn_5.radius.nodes}
+### Function for selecting the node with the closest distance from KNN. 
+### This will be used to set the snap point for the charge point so that it is directly on the network vertices
+closest.nodes.radius <- data.frame()
+for (i in 1:nrow(knn.radius[[2]])) {
+  new_elements <- getMinKnn(i, knn.radius$nn.idx, knn.radius$nn.dists)
+  closest.nodes.radius <- rbind(closest.nodes.radius, new_elements)
+}
+
+colnames(closest.nodes.radius) <- c("node_id", "distance")
+```
+
 ### Snap charge points to nodes
 
 "A snap distance tolerance is used to control where snapping is performed. Snapping one geometry to another can improve robustness for overlay operations by eliminating nearly-coincident edges (which cause problems during noding and intersection calculation). Too much snapping can result in invalid topology being created, so the number and location of snapped vertices is decided using heuristics to determine when it is safe to snap. This can result in some potential snaps being omitted, however."
 
 ```{r snap_points_to_nodes, include=FALSE}
 ### Snap charging points to nodes
-snap_matrix <- closest %>%
-  rownames_to_column(., var = "node_id") %>%
-  arrange(distance) %>% 
-  distinct(charge_id, .keep_all = TRUE) %>%
-  arrange(charge_id) %>%
+snap_matrix <- closest.nodes %>%
+  rownames_to_column(., var = "charge_id") %>%
+  #arrange(distance) %>% 
+  #distinct(charge_id, .keep_all = TRUE) %>%
+  #arrange(charge_id) %>%
   select(node_id, charge_id)
 
 # Based on the closest network node to a charge point, snap point
@@ -474,6 +494,7 @@ graph.merged <- graph %>%
   activate(nodes) %>% 
   mutate(charge_points = ifelse(nodeID %in% charge_points.p2p.geo.nodes$nodeId, 1, 0))
 
+graph.merged %>% filter(charge_points > 0)
 ```
 
 ```{r plot_network_graph, eval=TRUE, include=TRUE}
@@ -529,14 +550,20 @@ graph.charge_only <- graph %>% filter(edgeID %in% edges.charge_only$edgeID)
 
 Alternative more "accurate" measure for shortest paths what considering road networks and driveability.
 
-```{r loop_dijkstras_func}
-# Loop over each node and find the shortest path to a charge point
-cp.test <- head(charge_points.p2p.geo.nodes)
+```{r st_planr_dodgr_cleaning}
+dodgr::igraph_to_dodgr(graph)
+```
 
+```{r loop_dijkstras_func}
+# https://github.com/ropensci/stplanr/issues/261 Talking about issues with stplanr
+# Loop over each charge point node and find the shortest path from a charge point to a nearby node
+cp.test <- charge_points.p2p.geo.nodes
+
+test <- data_frame()
 for(i in 1:nrow(cp.test)) {
   # select closest nodes
   closest_nodes <- knn.5.nodes$nn.idx[i,] %>% as_tibble() %>% filter(value != cp.test[i,]$nodeId)
-  print(paste("Start:",cp.test[i,]$nodeId))
+  print(paste("Start:", cp.test[i,]$charge_id))
   # loop to get shortest path for each
   for(ii in 1:nrow(closest_nodes)) {
     from_cp_node <- graph.merged %>%
@@ -548,7 +575,7 @@ for(i in 1:nrow(cp.test)) {
                     filter(nodeID == as.character(closest_nodes[ii,])) %>%
                     pull(nodeID)
       
-    print(paste("from node:", from_cp_node, "to node:",  to_node))
+    # print(paste("from node:", from_cp_node, "to node:",  to_node))
       path <- shortest_paths(
               graph = graph.merged,
               from = from_cp_node,
@@ -562,16 +589,92 @@ for(i in 1:nrow(cp.test)) {
                   subgraph.edges(eids = path$epath %>% unlist()) %>%
                   as_tbl_graph()
     
-    print(paste("Distance:", path_graph %>%
-            activate(edges) %>%
-            as_tibble() %>%
-            summarise(length = sum(length))
-            ))
+   distance_data <- path_graph %>%
+          activate(edges) %>%
+          as_tibble() %>%
+          summarise(length = sum(length))
+   
+     print(paste("Distance:", distance_data))
+    new_distances <- c(as_tibble(from_cp_node), as_tibble(to_node), distance_data)
+    test <- rbind(test, new_distances)
   }
+  
   print("")
 }
 ```
 
+```{r}
+## Loop over each node in the entire road network and find the shortest path to a charge point
+joined.nodes.bergsjön <- joined.nodes %>% as_tibble() %>% filter(deso == '1480C3560')
+nodes.test <- graph %>% activate(nodes) %>% as_tibble() %>% filter(nodeID %in% joined.nodes.bergsjön$nodeID)
+
+test.nodes <- data_frame()
+for(i in 1:nrow(nodes.test)) {
+  # select closest nodes
+  current_node <- nodes.test[i,]$nodeID
+  print(paste("Start:", current_node))
+  closest_cp <- cp.test %>% as_tibble() %>% filter(charge_id == closest[current_node,]$charge_id)
+  print(paste("for charge point:", closest_cp$charge_id))
+  ifelse(nrow(closest_cp) == 0, next, NA)
+    # get shortest path for the current node to it's closest charge point
+    from_node <- graph %>%
+                    activate(nodes) %>%
+                    filter(nodeID == current_node) %>%
+                    pull(nodeID)
+    
+    to_node <- graph %>%
+                    activate(nodes) %>%
+                    filter(nodeID == closest_cp$nodeId) %>%
+                    pull(nodeID)
+      
+      print(paste("from node:", from_node, "to node:",  to_node))
+      
+      path <- shortest_paths(
+              graph = graph,
+              from = from_node,
+              to = to_node,
+              mode = "all",
+              output="both",
+              algorithm ="dijkstra", # Ensure to use Dijkstra's algorithm
+              weights = graph.merged %>% activate(edges) %>% pull(length)
+            )
+    path_graph <- graph %>%
+                  subgraph.edges(eids = path$epath %>% unlist()) %>%
+                  as_tbl_graph()
+    
+   distance_data <- path_graph %>%
+          activate(edges) %>%
+          as_tibble() %>%
+          summarise(length = sum(length))
+   
+    print(paste("Distance:", distance_data))
+    new_distances <- c(as_tibble(from_node), as_tibble(to_node), distance_data)
+    test.nodes <- rbind(test.nodes, new_distances)
+  
+  print("")
+}
+```
+
+```{r}
+distances_per_point <- test
+colnames(distances_per_point) <- c("from_node", "to_node", "distance")
+
+distances_per_point.avg <- distances_per_point %>% 
+  group_by(from_node) %>% 
+  summarise(avg_path_dist = (mean(distance))) %>% 
+  arrange(desc(avg_path_dist))
+
+charge_points.p2p.geo.nodes.avgpath <- merge(charge_points.p2p.geo.nodes, 
+                                             distances_per_point.avg, by.x="nodeId", by.y="from_node", 
+                                             all=TRUE) %>% mutate(charge_id = as.integer(charge_id)) %>% arrange(charge_id)
+
+charge_points.p2p.geo.nodes.avgpath %>% view()
+
+ggplot() +
+  geom_sf(data = joined.nodes, size=0.4) +
+  geom_sf(data=charge_points.p2p.geo.nodes.avgpath, aes(color=avg_path_dist)) +
+  scale_color_distiller(palette = "Oranges")
+```
 
 ```{r dijkstras_graph_search}
 ## Alternative
@@ -592,22 +695,24 @@ for(i in 1:nrow(cp.test)) {
 # From node is the charge point
 from_node <- graph.merged %>%
   activate(nodes) %>%
-  #filter(nodeID == "1018") %>%
-  filter(nodeID %in% charge_points.p2p.geo.nodes$nodeId) %>%
+  filter(nodeID == 43495) %>% #charge_points.p2p.geo.nodes[1,]$nodeId) %>%
+  #filter(nodeID == 70946) %>%
   pull(nodeID)
 
-#snap_matrix[[1]]
+nrow(from_node %>% as_tibble())
+
 non_charge_point <- graph.merged %>% filter(charge_points == 0) %>% as_tibble() %>% select(nodeID)
 
 # to node is the closest node in the network 
 to_node <- graph.merged %>%
   activate(nodes) %>%
-  #filter(nodeID == "1019") %>%
-  #filter((nodeID %in% non_charge_point$nodeID)) %>%
-  filter(nodeID %in% closest.nodes$node_id) %>%
+  #filter(nodeID %in% knn.5.nodes$nn.idx[1,]) %>%
+  filter((nodeID %in% c(43494, 43493, 687, 688))) %>%
+  #filter(nodeID %in% c(23928, 13812, 13816, 13815)) %>%
   pull(nodeID)
 
-
+nrow(to_node %>% as_tibble())
+?shortest_paths
 # Get the shortest path between each of these points
 path <- shortest_paths(
   graph = graph.merged,
@@ -639,25 +744,47 @@ path_graph %>%
 ### Validate if the routing algorithm works as expected
 charge_points.p2p.geo.nodes %>% filter((nodeId %in% path_graph_df$nodeID)) %>% nrow()
 
+# To use for testing and validation
+knn.5.nodes.filtered$nn.idx[3,]
+closest.nodes.new[3,]
+
+# Missing distances
+# row ch_node knn_node distance
+# 329 43495   43494    5.652420
+# 330 43495   43493    25.250847
+# 331 43495     687    0.000000
+# 332 43495     688    0.000000
+# Can get all distances
+# 17  70946   23928    3.107808
+# 18  70946   13812    10.546524
+# 19  70946   13816    42.985783
+# 20  70946   13815    76.786830
+
 ggplot() +
-  #geom_sf(data = graph %>% activate(edges) %>% as_tibble() %>% st_as_sf(), col = 'darkgrey') +
-  #geom_sf(data = graph %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), col = 'darkgrey', size = 0.5) +
-  geom_sf(data = gothenburg.subdiv, alpha=0.6, linewidth=0.6, colour="#8778D7", fill="#90C59B") +
-  #geom_sf(data = main_streets$osm_lines) +
-  geom_sf(data = streets$osm_lines) +
-  #geom_sf(data = st_special$osm_lines) +
-  #geom_sf(data = joined.nodes, size=0.4, aes(color=distance_level)) +
-  geom_sf(data = path_graph %>% activate(edges) %>% as_tibble() %>% st_as_sf(), lwd = 1, col = 'purple') +
-  geom_sf(data = graph %>% activate(nodes) %>% filter(nodeID %in% cp.test[4,]$nodeId) %>% as_tibble() %>% st_as_sf(), col = 'green', size = 1) +
-  geom_sf(data = graph %>% activate(nodes) %>% filter(nodeID %in% knn.5.nodes$nn.idx[4,]) %>% as_tibble() %>% st_as_sf(), col = 'red', size = 0.2) +
+  # DeSO Subdivisions
+  #geom_sf(data = gothenburg.subdiv, alpha=0.6, linewidth=0.6, colour="#8778D7", fill="#90C59B") + 
+  # Road network edges
+  geom_sf(data = graph.merged %>% activate(edges) %>% as_tibble() %>% st_as_sf(), lwd = 0.5, col = 'grey') +
+  # Road network nodes
+  geom_sf(data = joined.nodes, size=0.4) +
+  # Dijkstra's paths
+  # geom_sf(data = path_graph %>% activate(edges) %>% as_tibble() %>% st_as_sf(), lwd = 1, col = 'red') +
+  # # Charge points
+  # geom_sf(data = graph.merged %>% activate(nodes) %>% filter(nodeID %in% from_node) %>% as_tibble() %>% st_as_sf(), col = 'yellow', size = 1.8) +
+  # # Closest nodes
+  # geom_sf(data = graph.merged %>% activate(nodes) %>% filter(nodeID %in% to_node) %>% as_tibble() %>% st_as_sf(), col = 'blue', size = 1) +
   #geom_sf(data=charge_points.p2p.geo.snaps, col="red") +
-  scale_color_brewer(palette = "YlGnBu") +
-  coord_sf(xlim = c(11.95, 12.1),
-           ylim = c(57.68, 57.72),
+  # Coords All paths
+  coord_sf(xlim = c(11.940, 11.946),
+           ylim = c(57.697, 57.70),
            expand = TRUE, clip = "on")
- # coord_sf(xlim = c(11.71, 12.16),
- #           ylim = c(57.58, 57.86),
- #           expand = TRUE, clip="on")
+  # Coords test Missings
+  # coord_sf(xlim = c(11.964, 11.9713),
+  #          ylim = c(57.708, 57.712),
+  #          expand = TRUE, clip = "on")
+  # coord_sf(xlim = c(11.71, 12.16),
+  #          ylim = c(57.58, 57.86),
+  #          expand = TRUE, clip="on")
 ```
 
 ### Accessibility measures
