@@ -89,9 +89,10 @@ regSO_deso_table <- regSO_deso_table %>%
   rename(deso = DeSO, regso = RegSO) %>%
   select(deso, regso)
 
-gothenburg.subdiv <- geo %>% filter(kommunnamn == "Göteborg") #|
-                                    #kommunnamn == "Mölndal" | 
-                                    #kommunnamn == "Öckerö")
+gothenburg.subdiv <- geo %>% filter(kommunnamn == "Göteborg") %>% 
+                             # Filter out category A and B deso areas
+# https://www.scb.se/hitta-statistik/regional-statistik-och-kartor/regionala-indelningar/deso---demografiska-statistikomraden/
+                             filter(grepl("C", deso) == TRUE)
 
 # Convert Gothenburg subdivision polygons to same crs 4326 as osm data
 gothenburg.subdiv <- gothenburg.subdiv %>% st_transform(., 4326)
@@ -325,13 +326,20 @@ nodes <- nodes %>%
 # Create a graph from the adjacency matrix
 graph <- tbl_graph(nodes = nodes, edges = as_tibble(edges), directed = FALSE)
 
+
 # Identify isolate nodes in the graph
-isolated(as_adjacency_matrix(graph)) %>% as_tibble() %>% filter(value==TRUE)
+# isolated(as_adjacency_matrix(graph)) %>% as_tibble() %>% filter(value==TRUE)
 
 # The activate() verb specifies if we want to manipulate the edges or the nodes. 
 graph <- graph %>%
   activate(edges) %>%
+  filter(!edge_is_multiple()) %>%
+  filter(!edge_is_loop())
   mutate(length = st_length(geometry))
+
+# Subdivide edges
+subdivision <- convert(simple, to_spatial_subdivision)
+
 ```
 
 ```{r nodes_to_coords_matrix}
@@ -357,7 +365,7 @@ Calculate the closest charge point to a node/intersection using K nearest neighb
 ```{r setup_knn_nearest_point}
 
 #### FINDING NEAREST POINTS #####
-
+?nn2
 ### As the crow flies method
 ### RANN nn2
 ### Find the K nearest neighbour charging point to each node (KNN)
@@ -580,7 +588,7 @@ for(i in 1:nrow(cp.test)) {
               graph = graph.merged,
               from = from_cp_node,
               to = to_node,
-              mode = "all",
+              #mode = "all",
               output="both",
               algorithm ="dijkstra", # Ensure to use Dijkstra's algorithm
               weights = graph.merged %>% activate(edges) %>% pull(length)
@@ -633,7 +641,7 @@ for(i in 1:nrow(nodes.test)) {
               graph = graph,
               from = from_node,
               to = to_node,
-              mode = "all",
+              #mode = "all",
               output="both",
               algorithm ="dijkstra", # Ensure to use Dijkstra's algorithm
               weights = graph.merged %>% activate(edges) %>% pull(length)
@@ -695,8 +703,8 @@ ggplot() +
 # From node is the charge point
 from_node <- graph.merged %>%
   activate(nodes) %>%
-  filter(nodeID == 43495) %>% #charge_points.p2p.geo.nodes[1,]$nodeId) %>%
-  #filter(nodeID == 70946) %>%
+  #filter(nodeID == 43495) %>% #charge_points.p2p.geo.nodes[1,]$nodeId) %>%
+  filter(nodeID == 70946) %>%
   pull(nodeID)
 
 nrow(from_node %>% as_tibble())
@@ -707,18 +715,18 @@ non_charge_point <- graph.merged %>% filter(charge_points == 0) %>% as_tibble() 
 to_node <- graph.merged %>%
   activate(nodes) %>%
   #filter(nodeID %in% knn.5.nodes$nn.idx[1,]) %>%
-  filter((nodeID %in% c(43494, 43493, 687, 688))) %>%
-  #filter(nodeID %in% c(23928, 13812, 13816, 13815)) %>%
+  #filter((nodeID %in% c(43494, 43493, 687, 688))) %>%
+  filter(nodeID %in% c(23928, 13812, 13816, 13815)) %>%
   pull(nodeID)
 
 nrow(to_node %>% as_tibble())
-?shortest_paths
+
 # Get the shortest path between each of these points
 path <- shortest_paths(
   graph = graph.merged,
   from = from_node,
   to = to_node,
-  mode = "all",
+  #mode = "all",
   output="both",
   algorithm ="dijkstra", # Ensure to use Dijkstra's algorithm
   weights = graph.merged %>% activate(edges) %>% pull(length)
@@ -768,20 +776,20 @@ ggplot() +
   # Road network nodes
   geom_sf(data = joined.nodes, size=0.4) +
   # Dijkstra's paths
-  # geom_sf(data = path_graph %>% activate(edges) %>% as_tibble() %>% st_as_sf(), lwd = 1, col = 'red') +
+   geom_sf(data = path_graph %>% activate(edges) %>% as_tibble() %>% st_as_sf(), lwd = 1, col = 'red') +
   # # Charge points
-  # geom_sf(data = graph.merged %>% activate(nodes) %>% filter(nodeID %in% from_node) %>% as_tibble() %>% st_as_sf(), col = 'yellow', size = 1.8) +
+   geom_sf(data = graph.merged %>% activate(nodes) %>% filter(nodeID %in% from_node) %>% as_tibble() %>% st_as_sf(), col = 'yellow', size = 1.8) +
   # # Closest nodes
-  # geom_sf(data = graph.merged %>% activate(nodes) %>% filter(nodeID %in% to_node) %>% as_tibble() %>% st_as_sf(), col = 'blue', size = 1) +
+  #geom_sf(data = graph.merged %>% activate(nodes) %>% filter(nodeID %in% to_node) %>% as_tibble() %>% st_as_sf(), col = 'blue', size = 1) +
   #geom_sf(data=charge_points.p2p.geo.snaps, col="red") +
   # Coords All paths
-  coord_sf(xlim = c(11.940, 11.946),
-           ylim = c(57.697, 57.70),
-           expand = TRUE, clip = "on")
-  # Coords test Missings
-  # coord_sf(xlim = c(11.964, 11.9713),
-  #          ylim = c(57.708, 57.712),
+  # coord_sf(xlim = c(11.940, 11.946),
+  #          ylim = c(57.697, 57.70),
   #          expand = TRUE, clip = "on")
+  # Coords test Missings
+  coord_sf(xlim = c(11.964, 11.9713),
+           ylim = c(57.708, 57.712),
+           expand = TRUE, clip = "on")
   # coord_sf(xlim = c(11.71, 12.16),
   #          ylim = c(57.58, 57.86),
   #          expand = TRUE, clip="on")
@@ -1016,7 +1024,8 @@ deso.age <- deso.age %>%
 
 deso.pop <- deso.age %>% 
   filter(deso %in% regso.list$deso) %>% 
-  mutate(pop = total, ages = list(data_frame(across(colnames(deso.age[,3:19]))))) %>% 
+  mutate(pop = total, 
+         ages = list(data_frame(across(colnames(deso.age[,3:19]))))) %>% 
   select(deso, pop, ages)
 
 deso.households <- deso.households %>%
@@ -1043,7 +1052,7 @@ deso.demographics <- deso_aream2 %>%
   select(deso, regso, nodes, avg_dist,  everything()) %>%
   arrange(desc(avg_dist))
 
-view(deso.demographics)
+#view(deso.demographics)
 
 deso.demographics.WOMajorityHouses <- deso.demographics %>%
   # Filter out desos with majority houses

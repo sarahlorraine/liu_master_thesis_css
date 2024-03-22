@@ -72,12 +72,15 @@ joined.nodes %>% as_tibble() %>%
 #        "Min power range" = powerRange.min,
 #        "Max power range" = powerRange.max,
 #        "Fast charger (50kwh+)" = isFastCharge) %>%
-  tbl_summary(.,
-            include = c(nodeID, knn_chargeId, knn_distance, distance_level),
-            statistic = list(all_continuous() ~ "{mean} ({min}, {max})")) %>%
-            modify_caption("**Road network nodes in Gothenburg city** (N = {N})")
-
-#stargazer::stargazer(type="latex", style="asr", title = "PEV public charge points across Gothenburg city", notes = "Charging point data sources from Place to Plug")
+  # tbl_summary(.,
+  #           include = c(nodeID, knn_chargeId, knn_distance, distance_level),
+  #           statistic = list(all_continuous() ~ "{mean} ({min}, {max})")) %>%
+  #           modify_caption("**Road network nodes in Gothenburg city** (N = {N})")
+stargazer::stargazer(type="latex", 
+                     style="asr",
+                     summary = TRUE,
+                     title = "PEV public charge points across Gothenburg city", 
+                     notes = "Charging point data sources from Place to Plug")
 
 ```
 
@@ -101,6 +104,27 @@ ggplot() +
      subtitle = "",
      fill = "") +
   theme_custom + theme(legend.position = "")
+```
+
+```{r map_deso_area}
+## Plot map with deso areas
+ggplot() +
+  #geom_sf(data = water$osm_multipolygons, fill = 'light blue') + 
+  geom_sf(data=gothenburg.subdiv, alpha=0.6, linewidth=0.6, colour="#8778D7", fill="#90C59B") +
+  #geom_sf(data = got.boundary$osm_multipolygons, linewidth=1, colour="black", fill="transparent") +
+
+ # geom_sf(data = land$osm_lines, color = 'light blue') + 
+  #geom_sf(data = streets$osm_lines, linewidth=0.2, color = '#1e00be') +
+  #geom_sf(data = main_streets$osm_lines, alpha=0.5, color = "#1e00be", linewidth=0.6) + 
+  #geom_sf(data = charge_points.p2p.geo, size=0.8, color="#1e00be") +
+  coord_sf(xlim = c(11.59, 12.21), 
+           ylim = c(57.51, 57.86), 
+           expand = TRUE, clip="on") +
+  # labs(title="Map of demographically statistical areas (DeSOs)",
+  #    subtitle = "Gothenburg Municipality",
+  #    fill = "") +
+  theme_custom + theme(legend.position = "", plot.background = element_rect(fill = "white"))
+
 ```
 
 ```{r map_nodes}
@@ -203,8 +227,9 @@ ggplot() +
 ```{r demographics_ds}
 # Descriptive stats for full demographic data
 deso.demographics %>% 
-  rename("Nodes" = n, 
-         "Average distance to PEV charge point" = avg_dist,
+  rename("Nodes" = nodes, 
+         #"Average distance to PEV charge point" = avg_dist,
+         #"Potential accessibility" = avg_dd_accessibility,
          "Area (m^2)" = area_m2,
          "Population" = pop,
          "Total households" = total_households,
@@ -212,24 +237,58 @@ deso.demographics %>%
          "Foreign background" = foreign,
          "High school" = gymnasium,
          "Middle school" = middle_school,
-         "Post high school (less than 3 yrs)" = post_gymnasium_less_than_3,
-         "Post high school (3 or more yrs)" = post_gymnasium_more_than_3,
+         "Tertiary education (< 3 yrs)" = post_gymnasium_less_than_3,
+         "Tertiary education (3 + yrs)" = post_gymnasium_more_than_3,
          "Rental apartment" = hyresrätt, 
          "Owner-occupied apartment" = bostadsrätt, 
          "Owner-occupied house" = äganderätt,
-         "Total cars on road" = bilar_i_trafik,
-         "Avg cars per household" = cars_per_household) %>%
-  select(-deso, -regso, -education_missing) %>% 
-  tbl_summary(., include=c(-ages),
-              statistic = list(all_continuous() ~ "{mean} ({min}, {max})")) %>%
-              modify_footnote(all_stat_cols() ~ "Mean (Minimun) (Maximum)") %>%
-              modify_caption("**Gothenburg city DeSO demographic data (All)** (N = {N})")
+         "Avg cars per household" = cars_per_household,
+         "Total cars on road" = bilar_i_trafik) %>%
+  select(-deso, -regso, -education_missing, -avg_dd_accessibility, -avg_dist) %>% 
+  stargazer::stargazer(type="latex", 
+                       style="asr", 
+                       omit.summary.stat = c("N"), 
+                       title = "Gothenburg city DeSO demographic data", 
+                       notes = "DeSO demographics are from 2022.")
+  # tbl_summary(., include=c(-ages),
+  #             statistic = list(all_continuous() ~ "{mean} ({min}, {max})")) %>%
+  #             modify_footnote(all_stat_cols() ~ "Mean (Minimun) (Maximum)") %>%
+  #             modify_caption("**Gothenburg city DeSO demographic data (All)** (N = {N})")
+```
+
+
+```{r demographics_ds}
+# Sample of summarised demographic data
+deso.demographics %>% arrange(desc(total_households)) %>% head() %>%
+  rename(#"Nodes" = nodes, 
+         #"Average distance to PEV charge point" = avg_dist,
+         #"Potential accessibility" = avg_dd_accessibility,
+         "Area (m^2)" = area_m2,
+         "Population" = pop,
+         "Total households" = total_households,
+         "Swedish background" = swedish,
+         "Foreign background" = foreign,
+         "High school" = gymnasium,
+         "Middle school" = middle_school,
+         "Tertiary education (< 3 yrs)" = post_gymnasium_less_than_3,
+         "Tertiary education (3 + yrs)" = post_gymnasium_more_than_3,
+         "Rental apartment" = hyresrätt, 
+         "Owner-occupied apartment" = bostadsrätt, 
+         "Owner-occupied house" = äganderätt,
+         "Avg cars per household" = cars_per_household,
+         "Total cars on road" = bilar_i_trafik) %>%
+  select(-nodes, -education_missing, -avg_dd_accessibility, -avg_dist, -ages) %>% 
+  stargazer::stargazer(type="latex", style="asr",flip = TRUE, summary=FALSE, title = "Gothenburg city DeSO demographic data", notes = "DeSO demographics are from 2022.")
+  # tbl_summary(., include=c(-ages),
+  #             statistic = list(all_continuous() ~ "{mean} ({min}, {max})")) %>%
+  #             modify_footnote(all_stat_cols() ~ "Mean (Minimun) (Maximum)") %>%
+  #             modify_caption("**Gothenburg city DeSO demographic data (All)** (N = {N})")
 ```
 
 ```{r demographics_rentals_ds}
-# Descriptive stats for full demographic data
+# Descriptive stats for rental demographic data
 deso.demographics.rentals %>% 
-  rename("Nodes" = n, 
+  rename("Nodes" = nodes, 
          "Average distance to PEV charge point" = avg_dist,
          "Area (m^2)" = area_m2,
          "Population" = pop,
@@ -252,4 +311,16 @@ deso.demographics.rentals %>%
               modify_caption("**Gothenburg city DeSO demographic data
                              (areas with at least 75% rental apartment housing)** (N = {N})")
 ```
+
+```{r sample_knn_distance}
+# Sample of summarised demographic data
+closest %>% head() %>% rownames_to_column(., "from") %>% mutate(to = charge_id) %>%
+   select(from, to, distance) %>%
+  stargazer::stargazer(type="latex", 
+                       style="asr", 
+                       summary=FALSE, 
+                       title = "Euclidean distance between points using K nearest neighbour: Sample data", 
+                       notes = "")
+
 ```
+
