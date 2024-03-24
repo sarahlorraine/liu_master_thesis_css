@@ -68,8 +68,8 @@ key <- paste(read_file(paste0(dirname(getwd()), "/gm_api_key.txt")), collapse="\
 
 ```{r load_environment, eval=TRUE}
 ## Placeholders to be able to save and load heavy datasets and variables
-#load('Charge_Environment.RData')
-save.image(file='Charge_Environment.RData')
+load('Charge_Environment.RData')
+#save.image(file='Charge_Environment.RData')
 #save(streets, file="streets.RData")
 ```
 
@@ -326,7 +326,6 @@ nodes <- nodes %>%
 # Create a graph from the adjacency matrix
 graph <- tbl_graph(nodes = nodes, edges = as_tibble(edges), directed = FALSE)
 
-
 # Identify isolate nodes in the graph
 # isolated(as_adjacency_matrix(graph)) %>% as_tibble() %>% filter(value==TRUE)
 
@@ -334,11 +333,11 @@ graph <- tbl_graph(nodes = nodes, edges = as_tibble(edges), directed = FALSE)
 graph <- graph %>%
   activate(edges) %>%
   filter(!edge_is_multiple()) %>%
-  filter(!edge_is_loop())
+  filter(!edge_is_loop()) %>%
   mutate(length = st_length(geometry))
 
 # Subdivide edges
-subdivision <- convert(simple, to_spatial_subdivision)
+#subdivision <- convert(simple, to_spatial_subdivision)
 
 ```
 
@@ -365,7 +364,7 @@ Calculate the closest charge point to a node/intersection using K nearest neighb
 ```{r setup_knn_nearest_point}
 
 #### FINDING NEAREST POINTS #####
-?nn2
+
 ### As the crow flies method
 ### RANN nn2
 ### Find the K nearest neighbour charging point to each node (KNN)
@@ -803,24 +802,20 @@ Using a measure for potential accessibility by distance decay. Operationalized a
 # https://cran.r-project.org/web/packages/accessibility/vignettes/accessibility.html
 # Setup network to be compatible for accessibility functions
 
-# Create a distance travel matrix
-distance_travel_matrix <- graph %>% activate(nodes) %>% 
-  as_data_frame() %>% 
-  mutate(from_id = from, to_id = to, 
-         length = as.numeric(length)) %>% 
+# Setup a distance travel matrix using all nodes and the distance to their knn nearest charge point
+distance_travel_matrix <- closest %>% 
+  rownames_to_column(., var = "node_id") %>%
+  mutate(charge_node_id = mapply(getNodePoint, charge_id)) %>%
+  mutate(from_id = node_id, to_id = charge_node_id, 
+         length = distance) %>% 
   select(from_id, to_id, length)
 
 # Find  the number of charge points
-count_occurance_cp <- closest %>% count(charge_id) %>% 
+count_occurance_cp <- closest %>% count(charge_id) %>%
   rownames_to_column(., var = "node_id") %>%
   select(node_id, charge_id, n)
 
-# charge_land_use <- count_occurance_cp %>% 
-#   rename(nodeID = "node_id") %>%
-#   left_join(count_occurance_cp, path_graph.df, by="nodeID", keep = TRUE) %>%
-#   mutate(id = as.numeric(rownames(closest)), charge_points = n, charge_id=charge_id.x) %>% 
-#   select(id, charge_points)
-
+# Create a Land use data frame
 charge_land_use <- graph.merged %>% 
   rename(id = "nodeID") %>% 
   as_data_frame(., what="vertices") %>%
@@ -834,13 +829,15 @@ charge_land_use <- graph.merged %>%
 # The potential accessibility
 # measure estimates the accessibility of opportunities in zone i to all other zones (n) in which smaller and/or more distant opportunities provide diminishing influences. The measure has the following form, assuming a negative exponential cost function:
   negative_exp <- gravity(
-  distance_travel_matrix,
-  charge_land_use,
-  opportunity = "charge_points",
-  travel_cost = "length",
-  decay_function = decay_exponential(decay_value = 0.5)
-)
-  negative_exp %>% arrange(desc(charge_points))
+    distance_travel_matrix,
+    charge_land_use,
+    opportunity = "charge_points",
+    travel_cost = "length",
+    decay_function = decay_exponential(decay_value = 0.5)
+  )
+
+negative_exp %>% arrange(desc(charge_points))
+  
 ```
 
 ### Calculate average distance by DeSO subdivisions
@@ -1102,7 +1099,7 @@ summary(model3.rentals)
 
 ```{r plot_demographic_results, eval=TRUE, include=TRUE}
 #scale(deso.demographics$avg_dist)
-ggplot(data = deso.demographics, aes(x=avg_dist, y=total_households)) + 
+ggplot(data = deso.demographics, aes(x=avg_dd_accessibility, y=total_households)) + 
   geom_point(aes(color=ifelse(foreign > 0.49, "foreign majority", "swedish majority"))) +
   labs(color="Swedish vs foreign")
   #scale_x_continuous(limits = c(0, 40))
