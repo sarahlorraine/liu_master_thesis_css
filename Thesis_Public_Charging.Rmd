@@ -71,6 +71,7 @@ key <- paste(read_file(paste0(dirname(getwd()), "/gm_api_key.txt")), collapse="\
 #load('Charge_Environment.RData')
 #save.image(file='Charge_Environment.RData')
 #save(streets, file="streets.RData")
+#save(distances_per_point, file="distances_per_point.RData")
 ```
 
 ## GiS setup and coordinations
@@ -190,15 +191,15 @@ gothenburg.subdiv <- gothenburg.subdiv %>% mutate(area = st_area(.)) %>%
 
 charge_points.p2p.geo <- st_filter(charge_points.p2p.geo, gothenburg.subdiv)
 
-```
-
-
-```{r google_setup_option, include=FALSE}
-
 # Save cleaned and merged data as csv
 # write_csv(p2p.long_lat, "p2p_data_long_lat.csv")
 # write_csv(p2p.data, "p2p_data_complete.csv")
 # p2p.data <- read_csv("p2p_data_complete.csv")
+
+```
+
+
+```{r google_setup_option, include=FALSE}
 
 # Google places API alternative using 'googleway'
 # res <- google_places(
@@ -695,7 +696,7 @@ dijkstras_cp_to_node.avg <- dijkstras_cp_to_node %>%
 ## Loop over each node in the entire road network and find the shortest path to a charge point
 gothenburg.subdiv_net.merged <- st_join(got_streets_net, gothenburg.subdiv, join = st_within, left=TRUE)
 
-nodes.bergsjön <- gothenburg.subdiv_net.merged %>% filter(deso == '1480C3560') %>% activate(nodes) %>% as_tibble()
+#nodes.bergsjön <- gothenburg.subdiv_net.merged %>% filter(deso == '1480C3560') %>% activate(nodes) %>% as_tibble()
 nodes.test <- got_streets_net %>% activate(nodes) %>% as_tibble()# %>% filter(id %in% nodes.bergsjön$id) %>% arrange(id)
 
 test.nodes <- data_frame()
@@ -714,7 +715,7 @@ for(i in 1:nrow(nodes.test)) {
     from_node <- got_streets_net %>%
                     activate(nodes) %>%
                     filter(id == current_node) %>%
-                    pull(id)
+                    pull(id) # ! It would be safer to use the vertex rownames here otherwise it can easily be broken if changes are made to the network graph, such as filtering as the shortest_path algorithm does not use the "id" col.
     
     to_node <- got_streets_net %>%
                     activate(nodes) %>%
@@ -749,20 +750,64 @@ for(i in 1:nrow(nodes.test)) {
 }
 ```
 
-```{r}
+```{r clean_dijkstras_data}
 distances_per_point <- test.nodes
 colnames(distances_per_point) <- c("from_node", "to_node", "distance")
+view(distances_per_point)
+# Save as csv for backup as the function takes 10 hours to run
+# write_csv(distances_per_point, "data/dijkstras_per_point.csv")
 
-charge_points.p2p.geo.nodes.avgpath <- merge(charge_points.p2p.geo.nodes, 
-                                             distances_per_point.avg, by.x="nodeId", by.y="from_node", 
-                                             all=TRUE) %>% mutate(charge_id = as.integer(charge_id)) %>% arrange(charge_id)
+charge_points.p2p.geo.nodes.dist <- merge(distances_per_point,
+                                          charge_points.p2p.geo.nodes, 
+                                          by.x="from_node", by.y="nodeId", 
+                                          all=TRUE) %>% mutate(charge_id = as.integer(charge_id)) %>%
+  arrange(charge_id) %>% st_as_sf()
 
-charge_points.p2p.geo.nodes.avgpath %>% view()
+charge_points.p2p.geo.nodes.dist %>% filter(from_node == to_node)
+charge_points.p2p.geo.nodes.dist %>% view()
+
+distances_per_point.sf <- merge(distances_per_point,
+                                got_streets_net %>% activate(nodes) %>% as_tibble(), 
+                                by.x="from_node", by.y="id", 
+                                all=TRUE) %>%
+  arrange(from_node) %>% st_as_sf()
+# Filter out nodes that are the same as the corresponding charge point as this distance is of course zero.
+
+distances_per_point.sf %>% view()
+distances_per_point.sf %>% filter(from_node == to_node)
+filtered <- st_filter(distances_per_point.sf, gothenburg.subdiv)
 
 ggplot() +
-  geom_sf(data = joined.nodes, size=0.4) +
-  geom_sf(data=charge_points.p2p.geo.nodes.avgpath, aes(color=avg_path_dist)) +
+  # All road network nodes
+  #geom_sf(data = got_streets_net %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), size=0.4) +
+  # nodes coloured by distance
+  geom_sf(data=filtered, size=0.5, aes(color=distance)) +
+  # Charge points
+  geom_sf(data=charge_points.p2p.geo.nodes.dist, col="blue") +
+  # DeSO Subdivisions
+  geom_sf(data = gothenburg.subdiv, alpha=0.3, linewidth=0.6, colour="#8778D7", fill="#90C59B") + 
   scale_color_distiller(palette = "Oranges")
+
+joined.nodes <- st_join(distances_per_point.sf, gothenburg.subdiv, join = st_within, left=TRUE)
+joined.nodes <- joined.nodes %>% 
+  mutate(dijkstras_distance = distance)
+
+avg_dist_deso <- joined.nodes %>% as_tibble() %>% 
+  group_by(deso) %>% 
+  summarise(nodes = n(),
+            #remove NA values from the mean to avoid NA result
+            avg_dist = mean(dijkstras_distance, na.rm=TRUE)) %>% 
+  arrange(avg_dist) #%>% drop_na()
+
+avg_dist_deso <- merge(avg_dist_deso, regSO_deso_table) %>% 
+  arrange(desc(avg_dist))
+view(avg_dist_deso)
+gothenburg.subdiv.merged <- merge(gothenburg.subdiv, avg_dist_deso, by="deso", all=FALSE)
+
+ggplot() + 
+  geom_sf(data = gothenburg.subdiv.merged, aes(fill=avg_dist), size=0.4) +
+  scale_fill_distiller(palette = "Oranges")
+
 ```
 
 ```{r dijkstras_graph_search}
@@ -861,7 +906,7 @@ ggplot() +
   # Road network edges
   geom_sf(data = got_streets_net %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), lwd = 0.1, col = 'grey') +
   # charge points
-   geom_sf(data = got_streets_net %>% activate(nodes) %>% as_tibble() %>% st_as_sf() %>% filter(id %in% c(from_node, to_node)), lwd = 0.5, col = 'green') +
+   geom_sf(data = got_streets_net %>% activate(nodes) %>% as_tibble() %>% filter(id %in% c(from_node, to_node)), lwd = 0.5, col = 'green') +
   # Road network nodes
  # geom_sf(data = joined.nodes %>% filter(id %in% c(from_node, to_node)), size=0.4) +
   # Label nodes
@@ -1138,7 +1183,7 @@ deso.demographics <- deso_aream2 %>%
   select(deso, regso, nodes, avg_dist,  everything()) %>%
   arrange(desc(avg_dist))
 
-#view(deso.demographics)
+view(deso.demographics.rentals)
 
 deso.demographics.WOMajorityHouses <- deso.demographics %>%
   # Filter out desos with majority houses
@@ -1188,10 +1233,17 @@ summary(model3.rentals)
 
 ```{r plot_demographic_results, eval=TRUE, include=TRUE}
 #scale(deso.demographics$avg_dist)
-ggplot(data = deso.demographics, aes(x=avg_dd_accessibility, y=total_households)) + 
+ggplot(data = deso.demographics, aes(x=avg_dist, y=total_households)) + 
   geom_point(aes(color=ifelse(foreign > 0.49, "foreign majority", "swedish majority"))) +
   labs(color="Swedish vs foreign")
   #scale_x_continuous(limits = c(0, 40))
+```
+
+```{r plot_demographic_results.rentals, eval=TRUE, include=TRUE}
+# Plot rental-majority DeSOs based on dijkstras shortest distance to charge point
+ggplot() + 
+  geom_sf(data = gothenburg.subdiv.merged %>% filter(deso %in% deso.demographics.rentals$deso), aes(fill=avg_dist), size=0.4) +
+  scale_fill_distiller(palette = "Oranges")
 ```
 
 ### PCA analysis
