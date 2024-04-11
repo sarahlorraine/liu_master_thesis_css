@@ -665,81 +665,76 @@ dijkstras_cp_to_node.avg <- dijkstras_cp_to_node %>%
 ```{r dijkstras_graph_search_tests}
 ####--- This code is reserved for point to point shortest path testing and visualisation
 # From node is the charge point
+
 test_from_node <- got_streets_net %>%
   activate(nodes) %>%
-  filter(id == 20) %>%
+  filter(id == 17) %>%
   pull(id)
 
 # to node is the closest node in the network 
 test_to_node <- got_streets_net %>%
-  activate(nodes) %>%
-  filter(id == 37786) %>%
+  activate(nodes) %>% 
+  filter(id == 37810) %>%
   pull(id)
 
 # Get the shortest path between each of these points
-test_path <- shortest_paths(
-  graph = got_streets_net,
-  from = test_from_node,
-  to = test_to_node,
-  #mode = "all",
-  output="both",
-  algorithm ="dijkstra", # Ensure to use Dijkstra's algorithm
-  weights = got_streets_net %>% activate(edges) %>% pull(length)
-)
-
-test_path_graph <- got_streets_net %>%
-    subgraph.edges(eids = test_path$epath %>% unlist()) %>%
-    as_tbl_graph()
-
-test_path_graph_df <- test_path_graph %>% as_data_frame(., what="vertices")
-
-#Calculate the total length of the path
+      test_path <- shortest_paths(
+                graph = got_streets_net,
+                from = test_from_node,
+                to = test_to_node,
+                #mode = "all",
+                output="both",
+                algorithm ="dijkstra", # Ensure to use Dijkstra's algorithm
+                weights = got_streets_net %>% activate(edges) %>% pull(length)
+              )
+    test_path_graph <- got_streets_net %>%
+                    subgraph.edges(eids = test_path$epath %>% unlist()) %>%
+                    as_tbl_graph()
+    
 test_path_graph %>%
-  activate(edges) %>%
-  as_tibble() %>%
-  summarise(length = sum(length))
+          activate(edges) %>%
+          as_tibble() %>%
+          summarise(length = sum(length))
 
-# View all edges in shortest path
-test_path_graph %>%
-  activate(edges) %>%
-  as_tibble() %>%
-  arrange(desc(length))
-
+nodes.df <- got_streets_net %>% activate(nodes) %>% filter(id %in% c(test_from_node, test_to_node)) %>% as_tibble()
 # Plot reserved for testing single shortest paths
 ggplot() +
   # DeSO Subdivisions
   # geom_sf(data = gothenburg.subdiv, alpha=0.6, linewidth=0.6, colour="#8778D7", fill="#90C59B") + 
   # Road network edges
- # geom_sf(data = got_streets_net %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), size = 1, col = 'grey') +
-  #geom_sf(data = got_streets_net %>% activate(edges) %>% as_tibble() %>% st_as_sf(), size = 1, col = 'grey') +
-  # charge points
-   geom_sf(data = got_streets_net %>% activate(nodes) %>% as_tibble() %>% filter(id %in% c(test_from_node, test_to_node)), lwd = 0.5, col = 'green') +
+  # geom_sf(data = got_streets_net %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), size = 1, col = 'grey') +
+  geom_sf(data = got_streets_net %>% activate(edges) %>% as_tibble() %>% st_as_sf(), size = 2.5, col = 'grey') +
+ 
   # Road network nodes
- # geom_sf(data = joined.nodes %>% filter(id %in% c(test_from_node, test_to_node)), size=0.4) +
+  geom_sf(data = joined_deso.nodes, size=2, col="dark gray") +
   # Label nodes
   #geom_sf_label(data= sample.nodes, label=sample.nodes$nodeID) +
   # Dijkstra's paths
-   geom_sf(data = test_path_graph %>% activate(edges) %>% as_tibble() %>% st_as_sf(), lwd = 1, col = 'red')
-  # Closest nodes
-  # geom_sf(data = got_streets_net %>% activate(nodes) %>% filter(nodeID %in% test_to_node) %>% as_tibble() %>% st_as_sf(), col = 'blue', size = 1) +
+   geom_sf(data = test_path_graph %>% activate(edges) %>% as_tibble() %>% st_as_sf(), lwd = 3.5, col = '#bb3e03') +
+   # charge points
+   geom_sf(data = got_streets_net %>% activate(nodes) %>% as_tibble() %>% filter(id %in% c(test_from_node, test_to_node)), size = 4, col = '#3B9AB2') +
+   geom_sf_label(data = got_streets_net %>% activate(nodes) %>% as_tibble() %>% filter(id %in% c(test_from_node, test_to_node)), 
+               label = nodes.df$id, col="black", fill="#94d2bd", label.size = 1) +
   # Charge Points
   #geom_sf(data=charge_points.p2p.geo.snaps, col="red")
   # Coords All paths
   #coord_sf(xlim = c(11.986, 11.992),ylim = c(57.7170, 57.7135),expand = TRUE, clip = "on")
-  # # Coords test Missings
-  # coord_sf(xlim = c(11.96, 11.9713),
-  #          ylim = c(57.706, 57.715),
-  #          expand = TRUE, clip = "on")
+  # Coords test path
+  coord_sf(xlim = c(11.992, 11.9977),
+           ylim = c(57.714, 57.7161),
+           expand = TRUE, clip = "on") + theme_void()
   # coord_sf(xlim = c(11.71, 12.16),
   #          ylim = c(57.58, 57.86),
   #          expand = TRUE, clip="on")
+
+?geom_sf_label
 ```
 
 #### Run Dijkstra's function
 ```{r loop_dijkstras_nodes}
 ### !! Note: This functions takes about 12 hours to complete !! 
 ### Read the pre-generated data already exported from the csv:
-### read_csv("data/dijkstras_per_point.csv")
+#distances_per_point <- read_csv("data/dijkstras_per_point.csv")
 distances_per_point.Subdivided <- read_csv("data/dijkstras_per_point_subdivided.csv")
 
 ## Loop over each node in the entire road network and find the shortest path to a charge point
@@ -965,7 +960,7 @@ st_as_sf()
 avg_dist_deso <- joined_deso.nodes %>% as_tibble() %>% 
   group_by(deso) %>% 
   summarise(nodes = n(),
-            # remove NA values from the mean to avoid a NA result
+            # remove NA values from the mean to avoid an average NA result
             avg_dijk_dist = mean(dijkstras_distance, na.rm=TRUE),
             avg_euc_dist = mean(knn_distance, na.rm=TRUE),
             avg_accessibility = mean(potential_accessibility, na.rm=TRUE)) %>% 
@@ -984,6 +979,8 @@ ggplot() +
   # Charge points
   geom_sf(data=charge_points.p2p.geo.nodes.dist, col="blue") +
   scale_fill_distiller(palette = "Oranges")
+
+avg_dist_deso %>% mutate(avg_accessibility = scale(avg_accessibility)) %>% filter(deso == "1480C3220")
 ```
 
 ```{r plot_missings}

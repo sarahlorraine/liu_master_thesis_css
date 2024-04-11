@@ -8,8 +8,7 @@ editor_options:
 ---
 
 Note: Run Charge_Analysis first
-#load('Charge_Environment.RData')
-
+# Theme setup
 ```{r plot designs}
 #### PLOT DESIGN ####
 # Set color palette
@@ -29,8 +28,8 @@ theme_custom <- theme_void()+
   )
 
 ```
-
-
+# Descriptive Stats
+## Charge points
 ```{r charge_point_ds}
 # Descriptive Stats for Charge points
 p2p.data %>%
@@ -43,30 +42,20 @@ rename("Latitude" = lat,
        "Max power range" = powerRange.max,
        "Fast charger (50kwh+)" = isFastCharge) %>% 
   select(-id, -full_address, -status, -lng) %>%
-  stargazer::stargazer(type="latex", style="asr", title = "PEV public charge points across Gothenburg city", notes = "Charging point data sources from Place to Plug")
-# 
-# p2p.data %>%
-# rename("Latitude" = lat,
-#        "Longitude" = lon,
-#        "Car charging" = vehicleTypes.car,
-#        "Motorbike charging" = vehicleTypes.motorbike,
-#        "Electic bike charging" = vehicleTypes.bike,
-#        "Min power range" = powerRange.min,
-#        "Max power range" = powerRange.max,
-#        "Fast charger (50kwh+)" = isFastCharge) %>%
-# tbl_summary(.,
-#             include = c(-id, -full_address, -status, -lng),
-#             statistic = list(all_continuous() ~ "{mean} ({min}, {max})")) %>%
-#             modify_caption("**PEV public charge points across Gothenburg city** (N = {N})") %>% as_gt() %>% gt::as_latex()
+  stargazer::stargazer(type="latex", style="asr", digits=2, title = "PEV public charge points across Gothenburg city", notes = "Charging point data sources from Place to Plug")
+
 ```
+
+## Nodes
 
 ```{r nodes_ds}
 # Descriptive Stats for nodes in Gothenburg road network
-joined.nodes %>% as_tibble() %>% 
-  select(nodeID, knn_chargeId, knn_distance, distance_level) %>%
-# rename("Latitude" = lat,
-#        "Longitude" = lon,
-#        "Car charging" = vehicleTypes.car,
+joined_deso.nodes %>% as.data.frame() %>% 
+  select(from_node, to_node, knn_distance, dijkstras_distance) %>%
+rename("From node" = from_node,
+        "Charge point node" = to_node,
+        "Nearest neighbour distance" = knn_distance,
+       "Shortest path" = dijkstras_distance) %>%
 #        "Motorbike charging" = vehicleTypes.motorbike,
 #        "Electic bike charging" = vehicleTypes.bike,
 #        "Min power range" = powerRange.min,
@@ -79,12 +68,13 @@ joined.nodes %>% as_tibble() %>%
 stargazer::stargazer(type="latex", 
                      style="asr",
                      summary = TRUE,
-                     title = "PEV public charge points across Gothenburg city", 
+                     digits=2,
+                     title = "Gothenburg road network graph: Descriptive statistics", 
                      notes = "Charging point data sources from Place to Plug")
 
 ```
-
-
+# Map plots: Network
+## Road network
 ```{r map_charge_points}
 ## Plot map with charge points
 ggplot() +
@@ -94,7 +84,7 @@ ggplot() +
   #geom_sf(data = parks$osm_polygons, fill = '#94ba8e', color="dark green") +
   #geom_sf(data = got.boundary$osm_multipolygons, linewidth=0.5, colour="grey") +
   #geom_sf(data=gothenburg.subdiv, alpha=0.6, linewidth=0.6, colour="#8778D7", fill="#90C59B") +
-  geom_sf(data = streets$osm_lines, linewidth=0.2, color = '#1e00be') +
+  geom_sf(data = got_streets_net %>% activate(edges) %>% as_tibble() %>% st_as_sf(), linewidth=0.2, color = '#1e00be') +
   #geom_sf(data = main_streets$osm_lines, alpha=0.5, color = "#1e00be", linewidth=0.6) + 
   geom_sf(data = charge_points.p2p.geo, size=0.8, color="#1e00be") +
   coord_sf(xlim = c(11.71, 12.16), 
@@ -106,6 +96,7 @@ ggplot() +
   theme_custom + theme(legend.position = "")
 ```
 
+## DeSO areas
 ```{r map_deso_area}
 ## Plot map with deso areas
 ggplot() +
@@ -127,14 +118,16 @@ ggplot() +
 
 ```
 
+## Nodes
+
 ```{r map_nodes}
 ## Plot map with node points and their color coded distance values
 ggplot() +
   #geom_sf(data = streets$osm_lines, linewidth=0.2, color = '#1e00be') +
   #geom_sf(data = main_streets$osm_lines, alpha=0.8, color = "#1e00be", linewidth=0.6) + 
-  geom_sf(data = got.boundary$osm_multipolygons, linewidth=0.5, colour="grey") +
+  #geom_sf(data = got.boundary$osm_multipolygons, linewidth=0.5, colour="grey") +
   geom_sf(data=gothenburg.subdiv, alpha=0.2, linewidth=0.6, colour="transparent", fill="#90C59B")+
-  geom_sf(data = joined.nodes, size=0.4, aes(color=distance_level)) +
+  geom_sf(data = joined_deso.nodes, size=0.4, aes(color=distance_level)) +
   coord_sf(xlim = c(11.71, 12.16), 
            ylim = c(57.58, 57.86), 
            expand = TRUE, clip = "on") +
@@ -146,9 +139,11 @@ ggplot() +
   theme(legend.key.width = unit(1, 'cm'))
 ```
 
+## Foreign background
+
 ```{r map_deso_foreign_percentage}
 foreign <- deso.demographics %>% select(deso, foreign)
-got.sub.demo <- got.sub.new %>% merge(., foreign, by="deso")
+got.sub.demo <- gothenburg.subdiv.merged %>% merge(., foreign, by="deso")
 # Plot percentage foreign background by DeSO on heat map
 ggplot() +
   #geom_sf(data=gothenburg.subdiv) +
@@ -164,12 +159,152 @@ ggplot() +
   theme_custom
 ```
 
+# Example network plots
+
+```{r example_graph}
+p1 <- st_point(c(0, 1))#
+p2 <- st_point(c(2, 1))
+
+#l2
+p3 <- st_point(c(2, 2))
+p4 <- st_point(c(2, 1))
+p5 <- st_point(c(2, -2))
+p6 <- st_point(c(2, -3))
+
+#l3
+p7 <- st_point(c(0, -2))
+
+#l4
+p8 <- st_point(c(4, -2))
+
+l1 = st_sfc(st_linestring(c(p1, p2)))#
+l2 = st_sfc(st_linestring(c(p3, p2, p4, p5, p6)))#
+l3 = st_sfc(st_linestring(c(p7, p5)))#
+l4 = st_sfc(st_linestring(c(p5, p8)))#
+l5 = st_sfc(st_linestring(c(p7, p4)))
+
+lines = c(l1, l2, l3, l4, l5)
+
+edge_colors <- function(x) rep(brewer.pal(n=10, name="Set3")[-2], 2)[c(1:ecount(x))]
+
+net <- as_sfnetwork(lines, directed=FALSE)
+net <- net %>% activate(nodes) %>% mutate(nodeId = c(1:n()))
+net <- net %>% activate(edges) %>% mutate(length = edge_length())
+net.nodes <- net %>% activate(nodes) %>% as_tibble()
+
+ggplot() +
+  geom_sf(data = st_geometry(net, "edges"), col = edge_colors(net), lwd = 1.5) +
+  geom_sf(data = st_geometry(net, "nodes"), pch = 20, size = 9, col="black") +
+  geom_sf_text(data = net %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), 
+               label = net.nodes$nodeId, col="white") +
+  theme_void()
+
+
+test_path <- shortest_paths(
+  graph = net,
+  from = 7,
+  to = 1,
+  #mode = "all",
+  output="both",
+  algorithm ="dijkstra", # Ensure to use Dijkstra's algorithm
+  weights = net %>% activate(edges) %>% pull(length)
+)
+
+test_path_graph <- net %>%
+  subgraph.edges(eids = test_path$epath %>% unlist()) %>%
+  as_tbl_graph()
+
+test_path_graph_df <- test_path_graph %>% as_data_frame(., what="vertices")
+
+#Calculate the total length of the path
+test_path_graph %>%
+  activate(edges) %>%
+  as_tibble() %>%
+  summarise(length = sum(length))
+
+path.nodes <- test_path_graph %>% activate(nodes) %>% as_tibble()
+
+ggplot() +
+  geom_sf(data = st_geometry(net, "edges"), col = edge_colors(net), lwd = 1.5) +
+  geom_sf(data = test_path_graph %>% activate(edges) %>% as_tibble( ) %>% st_as_sf(), lwd=3, col="#bb3e03") +
+  geom_sf(data = st_geometry(net, "nodes"), pch = 20, size = 9, col="black") +
+  geom_sf_text(data = net %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), 
+                label = net.nodes$nodeId, col="white") +
+  geom_sf_text(data = test_path_graph %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), 
+                label = path.nodes$nodeId, col="white") +
+  theme_void()
+
+### Subdivided
+
+net.simple <- as_sfnetwork(lines, directed=FALSE)
+net.simple <- net.simple %>% 
+  activate("edges") %>% 
+  arrange(edge_length()) %>%
+  filter(!edge_is_multiple()) %>%
+  filter(!edge_is_loop())
+
+net.subdivision <- convert(net.simple, to_spatial_subdivision)
+net.subdivision <- net.subdivision %>% activate(edges) %>% mutate(length = edge_length())
+net.subdivision <- net.subdivision %>% activate(nodes) %>% arrange(.tidygraph_node_index) %>% mutate(nodeId = c(1:n()))
+net.subdivision.nodes <- net.subdivision %>% activate(nodes) %>% as_tibble()
+
+
+ggplot() +
+  geom_sf(data = st_geometry(net.subdivision, "edges"), col = edge_colors(net.subdivision), lwd = 1.5) +
+  geom_sf(data = st_geometry(net.subdivision, "nodes"), pch = 20, size = 9, col="black") +
+  geom_sf_text(data = net.subdivision %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), 
+               label = net.subdivision.nodes$nodeId, col="white") +
+  theme_void()
+
+
+test_path <- shortest_paths(
+  graph = net.subdivision,
+  from = 7,
+  to = 1,
+  #mode = "all",
+  output="both",
+  algorithm ="dijkstra", # Ensure to use Dijkstra's algorithm
+  weights = net.subdivision %>% activate(edges) %>% pull(length)
+)
+
+test_path_graph <- net.subdivision %>%
+  subgraph.edges(eids = test_path$epath %>% unlist()) %>%
+  as_tbl_graph()
+
+test_path_graph_df <- test_path_graph %>% as_data_frame(., what="vertices")
+
+#Calculate the total length of the path
+test_path_graph %>%
+  activate(edges) %>%
+  as_tibble() %>%
+  summarise(length = sum(length))
+
+path.nodes <- test_path_graph %>% activate(nodes) %>% as_tibble()
+
+ggplot() +
+  geom_sf(data = st_geometry(net.subdivision, "edges"), col = edge_colors(net.subdivision), lwd = 1.5) +
+  geom_sf(data = test_path_graph %>% activate(edges) %>% as_tibble( ) %>% st_as_sf(), lwd=3, col="#bb3e03") +
+  geom_sf(data = st_geometry(net.subdivision, "nodes"), pch = 20, size = 9, col="black") +
+  geom_sf_text(data = net.subdivision %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), 
+               label = net.subdivision.nodes$nodeId, col="white") +
+  geom_sf_text(data = test_path_graph %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), 
+               label = path.nodes$nodeId, col="white") +
+  theme_void()
+
+```
+
+# Results
+
+## Distance
+
+### All DeSO
+ 
 ```{r map_deso_averages}
 # Plot average distances by DeSO on heat map
 ggplot() +
   #geom_sf(data=gothenburg.subdiv) +
   geom_sf(data = got.boundary$osm_multipolygons, linewidth=0.5, colour="grey") +
-  geom_sf(data=got.sub.new, alpha=0.7, aes(fill=log10(avg_dist)), linewidth=0.8) +
+  geom_sf(data=gothenburg.subdiv.merged, alpha=0.7, aes(fill=log10(avg_dijk_dist)), linewidth=0.8) +
   #geom_sf(data = streets$osm_lines, linewidth=0.2, color = 'black') +
   coord_sf(xlim = c(11.71, 12.16), 
            ylim = c(57.57, 57.86), expand = TRUE, clip = "on") +
@@ -177,20 +312,20 @@ ggplot() +
        subtitle = "By DeSO subdivision",
        fill = "Distance") +
   scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous"),
-                       limits= c(0, max(log10(got.sub.new$avg_dist)))) +
+                       limits= c(0, max(log10(gothenburg.subdiv.merged$avg_dijk_dist)))) +
   theme_custom
 ```
 
+### Rentals
 ```{r map_rental_desos}
 # Filter out desos by rental majority areas
-got.sub.new.rentals <- got.sub.new %>% 
+got.sub.new.rentals <- gothenburg.subdiv.merged %>% 
   filter(deso %in% deso.demographics.rentals$deso)
 # Plot average distances by DeSO on heat map
 ggplot() +
   #geom_sf(data=gothenburg.subdiv) +
-  geom_sf(data = got.boundary$osm_multipolygons, linewidth=0.5, colour="grey") +
-  geom_sf(data=got.sub.new, alpha=0.9, linewidth=0.6) +
-  geom_sf(data=got.sub.new.rentals, alpha=0.7, aes(fill=log10(avg_dist)), linewidth=0.8) +
+  geom_sf(data=gothenburg.subdiv.merged, alpha=0.9, linewidth=0.6) +
+  geom_sf(data=got.sub.new.rentals, alpha=0.7, aes(fill=(avg_dijk_dist)), linewidth=0.8) +
   #geom_sf(data = streets$osm_lines, linewidth=0.2, color = 'black') +
   coord_sf(xlim = c(11.71, 12.16), 
            ylim = c(57.57, 57.86), expand = TRUE, clip = "on") +
@@ -198,20 +333,21 @@ ggplot() +
        subtitle = "DeSO subdivisions with min 75% rental housing",
        fill = "Distance") +
   scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous"),
-                       limits= c(0, max(log10(got.sub.new$avg_dist)))) +
+                       limits= c(0, max((gothenburg.subdiv.merged$avg_dijk_dist)))) +
   theme_custom
 ```
 
+
+### Owner occupied
 ```{r map_rental_desos}
 # Filter out desos by rental majority areas
-got.sub.new.owner.occupied <- got.sub.new %>% 
+got.sub.new.owner.occupied <- gothenburg.subdiv.merged %>% 
   filter(deso %in% deso.demographics.owner.occupied$deso)
 # Plot average distances by DeSO on heat map
 ggplot() +
   #geom_sf(data=gothenburg.subdiv) +
-  geom_sf(data = got.boundary$osm_multipolygons, linewidth=0.5, colour="grey") +
-  geom_sf(data=got.sub.new, alpha=0.9, linewidth=0.6) +
-  geom_sf(data=got.sub.new.owner.occupied, alpha=0.7, aes(fill=log10(avg_dist)), linewidth=0.8) +
+  geom_sf(data=gothenburg.subdiv.merged, alpha=0.9, linewidth=0.6) +
+  geom_sf(data=got.sub.new.owner.occupied, alpha=0.7, aes(fill=(avg_dijk_dist)), linewidth=0.8) +
   #geom_sf(data = streets$osm_lines, linewidth=0.2, color = 'black') +
   coord_sf(xlim = c(11.71, 12.16), 
            ylim = c(57.57, 57.86), expand = TRUE, clip = "on") +
@@ -220,15 +356,32 @@ ggplot() +
        fill = "Distance",
        caption = str_wrap("Owner-occupied included all housing that is with owned outright by the resident, often a freestanding house and land (äganderätt), as well as owned apartments with a building managed by a body corporate (bostadsrätt). In both of these housing types, the residents have some or full control over facilities available to residents.", 100)) +
   scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous"),
-                       limits= c(0, max(log10(got.sub.new$avg_dist)))) +
+                       limits= c(0, max((gothenburg.subdiv.merged$avg_dijk_dist)))) +
   theme_custom
 ```
+
+## Accessibility
+
+```{r map_rental_desos}
+# Plot average accessibility by DeSO on map
+ggplot() + 
+    geom_sf(data=gothenburg.subdiv.merged, alpha=0.9, linewidth=0.4) +
+  geom_sf(data = got.sub.new.rentals, aes(fill=(log(avg_accessibility))), size=0.4, linewidth=0.2) +
+  labs(title="Average accessibility to public charging point in Gothenburg",
+       subtitle = "DeSO subdivisions with min 75% rental housing",
+       fill = "Distance") +
+  scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous")) +
+theme_custom
+
+```
+ 
+## Descriptive Stats
 
 ```{r demographics_ds}
 # Descriptive stats for full demographic data
 deso.demographics %>% 
   rename("Nodes" = nodes, 
-         #"Average distance to PEV charge point" = avg_dist,
+         #"Average distance to PEV charge point" = avg_dijk_dist,
          #"Potential accessibility" = avg_dd_accessibility,
          "Area (m^2)" = area_m2,
          "Population" = pop,
@@ -244,12 +397,13 @@ deso.demographics %>%
          "Owner-occupied house" = äganderätt,
          "Avg cars per household" = cars_per_household,
          "Total cars on road" = bilar_i_trafik) %>%
-  select(-deso, -regso, -education_missing, -avg_dd_accessibility, -avg_dist) %>% 
+  select(-deso, -regso, -education_missing, -avg_accessibility, -avg_dijk_dist, -avg_euc_dist) %>% 
   stargazer::stargazer(type="latex", 
-                       style="asr", 
-                       omit.summary.stat = c("N"), 
-                       title = "Gothenburg city DeSO demographic data", 
-                       notes = "DeSO demographics are from 2022.")
+                       style="asr",
+                       digits=2,
+                       omit.summary.stat = c("N", "Sd"), 
+                       title = "DeSO demographic data for Gothenburg, Sweden", 
+                       notes = "DeSO demographic data from 2022.")
   # tbl_summary(., include=c(-ages),
   #             statistic = list(all_continuous() ~ "{mean} ({min}, {max})")) %>%
   #             modify_footnote(all_stat_cols() ~ "Mean (Minimun) (Maximum)") %>%
@@ -261,35 +415,32 @@ deso.demographics %>%
 # Sample of summarised demographic data
 deso.demographics %>% arrange(desc(total_households)) %>% head() %>%
   rename(#"Nodes" = nodes, 
-         #"Average distance to PEV charge point" = avg_dist,
+         #"Average distance to PEV charge point" = avg_dijk_dist,
          #"Potential accessibility" = avg_dd_accessibility,
          "Area (m^2)" = area_m2,
          "Population" = pop,
          "Total households" = total_households,
-         "Swedish background" = swedish,
-         "Foreign background" = foreign,
-         "High school" = gymnasium,
-         "Middle school" = middle_school,
-         "Tertiary education (< 3 yrs)" = post_gymnasium_less_than_3,
-         "Tertiary education (3 + yrs)" = post_gymnasium_more_than_3,
-         "Rental apartment" = hyresrätt, 
-         "Owner-occupied apartment" = bostadsrätt, 
-         "Owner-occupied house" = äganderätt,
+         "Swedish background %" = swedish,
+         "Foreign background %" = foreign,
+         "High school %" = gymnasium,
+         "Middle school %" = middle_school,
+         "Tertiary education (< 3 yrs) %" = post_gymnasium_less_than_3,
+         "Tertiary education (3 + yrs) %" = post_gymnasium_more_than_3,
+         "Rental apartment %" = hyresrätt, 
+         "Owner-occupied apartment %" = bostadsrätt, 
+         "Owner-occupied house %" = äganderätt,
          "Avg cars per household" = cars_per_household,
          "Total cars on road" = bilar_i_trafik) %>%
-  select(-nodes, -education_missing, -avg_dd_accessibility, -avg_dist, -ages) %>% 
-  stargazer::stargazer(type="latex", style="asr",flip = TRUE, summary=FALSE, title = "Gothenburg city DeSO demographic data", notes = "DeSO demographics are from 2022.")
-  # tbl_summary(., include=c(-ages),
-  #             statistic = list(all_continuous() ~ "{mean} ({min}, {max})")) %>%
-  #             modify_footnote(all_stat_cols() ~ "Mean (Minimun) (Maximum)") %>%
-  #             modify_caption("**Gothenburg city DeSO demographic data (All)** (N = {N})")
+  select(-nodes, -education_missing, -avg_accessibility, -avg_dijk_dist, -ages) %>% 
+  stargazer::stargazer(type="latex", style="asr", digits = 2, digits.extra = 0,  flip = TRUE,  summary=FALSE, 
+                       title = "DeSO demographic data for Gothenburg municipality: Sample set", notes = "DeSO demographics are from 2022.")
 ```
 
 ```{r demographics_rentals_ds}
 # Descriptive stats for rental demographic data
 deso.demographics.rentals %>% 
   rename("Nodes" = nodes, 
-         "Average distance to PEV charge point" = avg_dist,
+         "Average distance to PEV charge point" = avg_dijk_dist,
          "Area (m^2)" = area_m2,
          "Population" = pop,
          "Total households" = total_households,
@@ -312,15 +463,40 @@ deso.demographics.rentals %>%
                              (areas with at least 75% rental apartment housing)** (N = {N})")
 ```
 
+### Knn distance
 ```{r sample_knn_distance}
 # Sample of summarised demographic data
-closest %>% head() %>% rownames_to_column(., "from") %>% mutate(to = charge_id) %>%
-   select(from, to, distance) %>%
+closest_charge_sf  %>%
+  rownames_to_column(., "from") %>% mutate(to = charge_id) %>% 
+  filter(distance < 1000) %>%
+  head() %>% 
+  select(from, to, distance) %>%
   stargazer::stargazer(type="latex", 
-                       style="asr", 
+                       style="asr",
                        summary=FALSE, 
-                       title = "Euclidean distance between points using K nearest neighbour: Sample data", 
-                       notes = "")
+                       rownames = FALSE,
+                       digits = 0,
+                       title = "Euclidean distance between points using K nearest neighbour", 
+                       notes = "Note: Nearest neighbour distance is represented in meters")
+
+```
+
+```{r sample_dijk_distance}
+# Sample of summarised demographic data Dijkstra's distance
+joined_deso.nodes %>% 
+  filter(dijkstras_distance < 1000) %>%
+  as.data.frame() %>%
+  mutate(to = chargeId, from = from_node) %>%
+  mutate(dijkstras_distance = as.numeric(dijkstras_distance)) %>%
+  select(from, to, dijkstras_distance) %>%
+  drop_na() %>% head() %>%
+  stargazer::stargazer(type="latex", 
+                       style="asr",
+                       summary = FALSE, 
+                       rownames = FALSE,
+                       digits = 0,
+                       title = "Shortest distance between points using Dijkstra's algorithm", 
+                       notes = "Note: Shortest distance is represented in meters")
 
 ```
 
