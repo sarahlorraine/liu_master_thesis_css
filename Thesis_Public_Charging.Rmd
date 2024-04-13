@@ -124,7 +124,9 @@ location <- opq(st_bbox(gothenburg.subdiv))
 
 # Set the relevant tags and values for each street type needed
 main_st <- data.frame(type = c("motorway","trunk","primary","motorway_junction","trunk_link","primary_link","motorway_link"))
+
 st <- data.frame(type = available_tags('highway')$Value)
+
 non_vehicle <- data.frame(type = c("footway", "path", "steps", "cycleway", "corridor", "pedestrian", "track", "bridleway", "bus_guideway", "busway", "bus_stop", "construction", "elevator", "proposed", "street_lamp"))
 
 # Subset by those not in main and non_vehicle streets
@@ -144,10 +146,23 @@ streets <- location %>%
   add_osm_feature(key = "highway", 
                   value = st) %>% osmdata_sf()
 
+junctions <- location %>%
+  add_osm_feature(key = "junction", 
+                  value = st) %>% osmdata_sf()
+
 ### Get all relevant streets all of gothenburg (to be used for the network)
 got_streets <- location %>%
-  add_osm_feature(key = "highway", 
-                  value = c(main_st, st)) %>% osmdata_sf()
+                                  # Get all streets and motorways
+  add_osm_features(feature = list("highway" = c(main_st, st), 
+                                  # Add junctions (roundabouts etc)
+                                  "junction" = available_tags('junction')$Value)) %>% osmdata_sf()
+poly_to_lines %>% 
+  st_geometry() %>% 
+  plot()
+
+poly_to_lines <- st_cast(got_streets$osm_polygons, "LINESTRING")
+# bind all lines together
+got_streets.lines <- bind_rows(got_streets$osm_lines, poly_to_lines)
 
 ### Extra map objects if needed for visualising
 # water <- location %>%
@@ -244,15 +259,13 @@ got_streets <- location %>%
 ```{r setup_network_graph}
 ##### Preparing the road network graph of nodes and edges #####
 
-#got_streets_net_old
-### Bind the relevant streets and paths into one set 
-# got_streets_alt <- rbind((streets$osm_lines %>% select(highway)), 
-#                      main_streets$osm_lines %>% select(highway))
-
-# Select just the "highway" value of the osmlines as the rest are not needed in the network
-got_streets.lines <- got_streets$osm_lines %>% select(highway)
+# Select just the "highway" and "junction" values of the osmlines as the rest are not needed in the network
+got_streets.lines <- got_streets.lines %>% select(highway, junction)
 
 got_streets_net <- as_sfnetwork(got_streets.lines, directed = FALSE)
+
+# Filter the network by the true Gothenburg subdivision polygon
+got_streets_net <- got_streets_net %>% st_filter(., gothenburg.subdiv, .predicate =st_intersects)
 
 # Check the CRS to ensure it's correct before continuing: EPSG:4326
 st_crs(got_streets_net)
@@ -264,20 +277,33 @@ got_streets_net <- convert(got_streets_net, to_spatial_subdivision)
 # got_streets_simple <- convert(got_streets_net, to_spatial_smooth)
 # !! For this case simplification may be counter productive due to the need to measure isodistances and reduces precision
 
-# Add length of edges as a new variable. Remove looping edges
+# Further cleaning
 got_streets_net <- got_streets_net %>% 
   activate("edges") %>% 
+  # Remove looping edges and repeated edges
   filter(!edge_is_multiple()) %>%
   filter(!edge_is_loop()) %>%
+  # add length of edges as a new variable
   mutate(length = edge_length())
 
-# Remove "islands" of nodes and edges isolated from the wider road network. 
+# Remove "islands" of nodes and edges isolated from the wider road network.
 # Threshold is set to 6
-got_streets_net <- got_streets_net %>% 
-  activate(nodes) %>% 
-  mutate(neighbourhood = local_size(order = 6)) %>% 
-  filter(neighbourhood > 5)
+# !!! This is a problematic way to remove islands and could cause disruptions in the wider network. 
+# Instead, use Components
+# got_streets_net <- got_streets_net %>% 
+#   activate(nodes) %>% 
+#   mutate(neighbourhood = local_size(order = 6)) %>% 
+#   filter(neighbourhood > 5)
 
+# Check the number of components in the network (isolated islands not connected to the main network)
+#https://igraph.org/r/doc/components.html
+components <- got_streets_net %>% components(., mode = c("weak", "strong"))
+
+components$csize %>% as_tibble() %>% arrange(desc(value))
+
+got_streets_net <- got_streets_net %>% activate(nodes) %>% mutate(component = components$membership)
+# !! TODO - Don't just finlter these without solving Olofstorp DeSO
+got_streets_net <- got_streets_net %>% activate(nodes) %>% filter(component == 1)
 # Add an "id" to each node in the network based on rowname index
 # !!Make sure that this is the last step done to the network otherwise filtering and other mutations may impact the correctness of this.
 got_streets_net <- got_streets_net %>% 
@@ -477,109 +503,80 @@ knn.radius <- nn2(got_streets_coords,
              eps = 0)
 ```
 
-
-```{r extract_closest_from_knn_5}
-### Function for selecting the node with the closest distance from KNN
-getMinKnn <- function(i, ids, distances) {
-  min_dist_i <- which.min(distances[i,])
-  return(data.frame(ids[i, min_dist_i], distances[i, min_dist_i]))
-}
-#closest_charge_old <- closest_charge
-closest_charge <- data.frame()
-for (i in 1:nrow(knn.3$nn.idx)) {
-  #print(paste("running:", i,  "of", as.character(nrow(knn.3$nn.idx))))
-  new_elements <- getMinKnn(i, knn.3$nn.idx, knn.3$nn.dists)
-  closest_charge <- rbind(closest_charge, new_elements)
-}
-
-colnames(closest_charge) <- c("charge_id", "distance")
-got_streets_net.knn <- cbind(got_streets_coords, closest_charge) %>% 
-  mutate(Lon = X, Lat = Y) %>% select(-X, -Y)
-```
-
-```{r extract_closest_from_knn_5.nodes}
-### Function for selecting the node with the closest distance from KNN
-closest.nodes <- data.frame()
-for (i in 1:nrow(knn.3.nodes[[2]])) {
-  new_elements <- getMinKnn(i, knn.3.nodes$nn.idx, knn.3.nodes$nn.dists)
-  closest.nodes <- rbind(closest.nodes, new_elements)
-}
-
-colnames(closest.nodes) <- c("node_id", "distance")
-```
-
-```{r extract_closest_from_knn_5.radius.nodes}
-### Function for selecting the node with the closest distance from KNN. 
-### This will be used to set the snap point for the charge point so that it is directly on the network vertices
-# closest.nodes.radius <- data.frame()
-# for (i in 1:nrow(knn.radius[[2]])) {
-#   new_elements <- getMinKnn(i, knn.radius$nn.idx, knn.radius$nn.dists)
-#   closest.nodes.radius <- rbind(closest.nodes.radius, new_elements)
-# }
-# 
-# colnames(closest.nodes.radius) <- c("node_id", "distance")
-```
-
 ### Snap charge points to nodes
 
 ```{r snap_points_to_nodes, include=FALSE}
 ### Snap charging points to nodes
+# Alternative. nearest_feature https://cran.r-project.org/web/packages/sfnetworks/vignettes/sfn03_join_filter.html
+charge_point.coords <- charge_points.long_lat.matrix %>% as_tibble() %>% st_as_sf(coords = c("X", "Y"), crs = 4326)
 
+# Find indices of nearest nodes.
+nearest_nodes <- st_nearest_feature(charge_point.coords, got_streets_net)
+
+# Snap geometries of charge points to the network.
+charge_points.p2p.geo.nodes <- charge_point.coords %>% 
+  st_set_geometry(st_geometry(got_streets_net)[nearest_nodes]) %>% 
+  mutate(nodeId = nearest_nodes, charge_id = charge_points.p2p.geo$charge_id)
+```
+
+
+```{r snap_points_to_nodes_OLD, include=FALSE}
 # Create a simple matrix of snap points based on the closest node calculated using knn above
-snap_matrix <- closest.sf.nodes %>%
-  rownames_to_column(., var = "charge_id") %>%
-  select(node_id, charge_id)
-
-# Function: Based on the closest network node to a charge point, get snap point geometry
-getSnapPoint <- function(node) {
-  i <- match(node, snap_matrix[,2])
-  snap_node <- as.integer(snap_matrix[i,]$node_id)
-  snap_point <- got_streets.df[snap_node,]$geometry
-  return(snap_point)
-}
-
-# Check to ensure working function and no NAs
-# na_charge_list <- data.frame()
-# checkNa <- function(charge) {
-#   i <- match(charge, snap_matrix[,2])
+# snap_matrix <- closest.sf.nodes %>%
+#   rownames_to_column(., var = "charge_id") %>%
+#   select(node_id, charge_id)
+# 
+# # Function: Based on the closest network node to a charge point, get snap point geometry
+# getSnapPoint <- function(node) {
+#   i <- match(node, snap_matrix[,2])
 #   snap_node <- as.integer(snap_matrix[i,]$node_id)
-#   snap_point_id <- got_streets.sf[snap_node,]$nodeID
-#   return(data.frame(snap_node, charge))
+#   snap_point <- got_streets.df[snap_node,]$geometry
+#   return(snap_point)
 # }
 # 
-# for (i in 1:nrow(charge_points.p2p.geo)) {
-#   new_elements <- checkNa(charge_points.p2p.geo$charge_id[i])
-#  # To check which values are null
-#   na_charge_list <- ifelse(is.na(new_elements[1]), 
-#        rbind(na_charge_list, new_elements[2]), na_charge_list)
+# # Check to ensure working function and no NAs
+# # na_charge_list <- data.frame()
+# # checkNa <- function(charge) {
+# #   i <- match(charge, snap_matrix[,2])
+# #   snap_node <- as.integer(snap_matrix[i,]$node_id)
+# #   snap_point_id <- got_streets.sf[snap_node,]$nodeID
+# #   return(data.frame(snap_node, charge))
+# # }
+# #
+# # for (i in 1:nrow(charge_points.p2p.geo)) {
+# #   new_elements <- checkNa(charge_points.p2p.geo$charge_id[i])
+# #  # To check which values are null
+# #   na_charge_list <- ifelse(is.na(new_elements[1]),
+# #        rbind(na_charge_list, new_elements[2]), na_charge_list)
+# # }
+# # na_charge_list <- na_charge_list[[1]]
+# 
+# # Function: Based on the closest network node to a charge point, get snap point node id
+# getNodePoint <- function(charge) {
+#   i <- match(charge, snap_matrix[,2])
+#   # Get nodeID of the point to snap to
+#   snap_node <- as.integer(snap_matrix[i,]$node_id)
+#   #print(paste(charge, i, snap_node, snap_point_id))
+#   return(snap_node)
 # }
-# na_charge_list <- na_charge_list[[1]]
-
-# Function: Based on the closest network node to a charge point, get snap point node id
-getNodePoint <- function(charge) {
-  i <- match(charge, snap_matrix[,2])
-  # Get nodeID of the point to snap to
-  snap_node <- as.integer(snap_matrix[i,]$node_id)
-  #print(paste(charge, i, snap_node, snap_point_id))
-  return(snap_node)
-}
-
-# Node ids: Mutate the existing charge point data using the above functions
-charge_points.p2p.geo.nodes <- charge_points.p2p.geo %>% 
-  mutate(nodeId = mapply(getNodePoint, charge_id)) %>%
-  select(charge_id, nodeId) %>%
-  as_tibble() %>%
-  st_as_sf(crs = 4326)
-
-# Snap point geometry: Mutate the existing charge point data using the above functions
-charge_points.p2p.geo.snaps <- charge_points.p2p.geo %>% 
-  mutate(geometry = mapply(getSnapPoint, charge_id)) %>%
-  select(charge_id, geometry) %>%
-  as_tibble() %>%
-  st_as_sf(crs = 4326)
+# 
+# # Node ids: Mutate the existing charge point data using the above functions
+# charge_points.p2p.geo.nodes <- charge_points.p2p.geo %>%
+#   mutate(nodeId = mapply(getNodePoint, charge_id)) %>%
+#   select(charge_id, nodeId) %>%
+#   as_tibble() %>%
+#   st_as_sf(crs = 4326)
+# 
+# # Snap point geometry: Mutate the existing charge point data using the above functions
+# charge_points.p2p.geo.snaps <- charge_points.p2p.geo %>%
+#   mutate(geometry = mapply(getSnapPoint, charge_id)) %>%
+#   select(charge_id, geometry) %>%
+#   as_tibble() %>%
+#   st_as_sf(crs = 4326)
 ```
 
 ```{r plot_network_graph, eval=TRUE, include=TRUE}
+# Plot to snap points versus the original points to validate result
 ggplot() +
   geom_sf(data = got_streets_net %>% activate(edges) %>% as_tibble() %>% st_as_sf(), linewidth = 0.2, color="#1e00be") + 
   geom_sf(data = got_streets_net %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), size=0.1, color="#1e00be") +
@@ -588,7 +585,7 @@ ggplot() +
            xlim = c(11.71, 12.16), 
            ylim = c(57.58, 57.86), expand = TRUE, clip = "on") +
   geom_sf(data = charge_points.p2p.geo, size=0.9, color="#90C59B") +
-  geom_sf(data = charge_points.p2p.geo.snaps, size=0.9, color="red") +
+  geom_sf(data = charge_points.p2p.geo.nodes, size=0.9, color="red") +
   coord_sf(#lims_method = "geometry_bbox",
     xlim = c(11.71, 12.16), 
     ylim = c(57.58, 57.86), expand = TRUE, clip = "on") +
@@ -664,6 +661,7 @@ dijkstras_cp_to_node.avg <- dijkstras_cp_to_node %>%
 #### Testing and plotting
 ```{r dijkstras_graph_search_tests}
 ####--- This code is reserved for point to point shortest path testing and visualisation
+# https://cran.r-project.org/web/packages/sfnetworks/vignettes/sfn03_join_filter.html
 # From node is the charge point
 
 test_from_node <- got_streets_net %>%
@@ -727,7 +725,7 @@ ggplot() +
   #          ylim = c(57.58, 57.86),
   #          expand = TRUE, clip="on")
 
-?geom_sf_label
+
 ```
 
 #### Run Dijkstra's function
@@ -743,7 +741,7 @@ all_nodes <- got_streets_net %>% activate(nodes) %>% as_tibble()
 # Set the empty df for storing each distance result
 #distances_per_point <- data_frame()
 #distances_per_point.NoSubdivision <- data_frame()
-distances_per_point.Subdivided <- data_frame()
+distances_per_point <- data_frame()
 
 # Start timer
 start.time <- Sys.time()
@@ -791,7 +789,7 @@ for(i in 1:nrow(all_nodes)) {
    
     print(paste("Distance:", distance_data))
     new_distances <- c(as_tibble(from_node), as_tibble(to_node), distance_data)
-    distances_per_point.Subdivided <- rbind(distances_per_point.Subdivided, new_distances)
+    distances_per_point <- rbind(distances_per_point, new_distances)
   print("")
   print(paste(scales::percent(current_node / nrow(all_nodes)), "complete"))
   print("")
@@ -801,10 +799,9 @@ end.time <- Sys.time()
 time.taken <- round(end.time - start.time, 2)
 time.taken
 
-colnames(distances_per_point.Subdivided) <- c("from_node", "to_node", "distance")
-view(distances_per_point.Subdivided)
+# colnames(distances_per_point.Subdivided) <- c("from_node", "to_node", "distance")
+# view(distances_per_point.Subdivided)
 
-distances_per_point.Subdivided %>% group_by(ifelse(distance == 0, "Failed", "Succeeded")) %>% summarize(n= n())
 # Write result to csv
 #write_csv(distances_per_point.Subdivided, "data/dijkstras_per_point_subdivided.csv")
 
@@ -812,13 +809,16 @@ distances_per_point.Subdivided %>% group_by(ifelse(distance == 0, "Failed", "Suc
 # view(distances_per_point.NoSubdivision)
 # distances_per_point.NoSubdivision %>% group_by(ifelse(distance == 0, "Failed", "Succeeded")) %>% summarize(n= n(), percent = n() / sum(n))
 # #write_csv(distances_per_point.NoSubdivision, "data/dijkstras_per_point_no_subdivision.csv")
-# 
+
+
 # # Set column names
-# colnames(distances_per_point) <- c("from_node", "to_node", "distance")
-# view(distances_per_point)
+colnames(distances_per_point) <- c("from_node", "to_node", "distance")
+view(distances_per_point)
+
+distances_per_point %>% group_by(ifelse(distance == 0, "Failed", "Succeeded")) %>% summarize(n= n())
 
 # Save as csv for backup as the function takes 12 hours to run and you do not want to risk R crashing...
-# write_csv(distances_per_point, "data/dijkstras_per_point.csv")
+write_csv(distances_per_point, "data/dijkstras_per_point.csv")
 
 ```
 
