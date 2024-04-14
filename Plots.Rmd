@@ -77,23 +77,30 @@ stargazer::stargazer(type="latex",
 ## Road network
 ```{r map_charge_points}
 ## Plot map with charge points
+
+nodes <- got_streets_net %>% activate(nodes) %>% as_tibble() %>% st_as_sf()
 ggplot() +
-  #geom_sf(data = water$osm_multipolygons, fill = 'light blue') + 
-  #geom_sf(data = land$osm_lines, color = 'light blue') + 
-  #geom_sf(data = forest$osm_polygons, fill = 'dark green', color="dark green") +
-  #geom_sf(data = parks$osm_polygons, fill = '#94ba8e', color="dark green") +
-  #geom_sf(data = got.boundary$osm_multipolygons, linewidth=0.5, colour="grey") +
-  #geom_sf(data=gothenburg.subdiv, alpha=0.6, linewidth=0.6, colour="#8778D7", fill="#90C59B") +
-  geom_sf(data = got_streets_net %>% activate(edges) %>% as_tibble() %>% st_as_sf(), linewidth=0.2, color = '#1e00be') +
+  #geom_sf(data = got_streets_net %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), col = nodes$component, size=0.5) + 
+  #geom_sf(data = gothenburg.subdiv, alpha=0.6, linewidth=0.6, colour="#8778D7", fill="#90C59B") +
+  geom_sf(data = got_streets_net %>% activate(edges) %>% as_tibble() %>% st_as_sf(), linewidth=0.2, color = 'grey') +
   #geom_sf(data = main_streets$osm_lines, alpha=0.5, color = "#1e00be", linewidth=0.6) + 
-  geom_sf(data = charge_points.p2p.geo, size=0.8, color="#1e00be") +
-  coord_sf(xlim = c(11.71, 12.16), 
-           ylim = c(57.58, 57.86), 
-           expand = TRUE, clip="on") +
+  geom_sf(data = joined_charge_points, size=0.8, aes(color=log(capacity))) +
+  # coord_sf(xlim = c(11.71, 12.16), 
+  #          ylim = c(57.58, 57.86), 
+  #          expand = TRUE, clip="on") +
   labs(title="Public PEV charge points in Gothenburg City",
      subtitle = "",
      fill = "") +
   theme_custom + theme(legend.position = "")
+
+
+library(tmap)
+tmap_mode("view") # set to interactive mode
+tm_tiles("CartoDB.Positron") +
+  tm_shape(st_as_sf(got_streets_net, "edges")) +
+  tm_lines(col = "highway", colorNA = "red")
+  #tm_shape(st_as_sf(got_streets_net, "nodes")) +
+  #tm_dots(col = st_as_sf(got_streets_net, "nodes")$component)
 ```
 
 ## DeSO areas
@@ -298,22 +305,29 @@ ggplot() +
 ## Distance
 
 ### All DeSO
+
+```{r}
+normalize <- function(value, min, max) {
+	normalized <- (value - min) / (max - min);
+	return(normalized)
+}
+```
+
  
 ```{r map_deso_averages}
-# Plot average distances by DeSO on heat map
+# Plot average distances by DeSO on cloropleth map
 ggplot() +
-  #geom_sf(data=gothenburg.subdiv) +
-  geom_sf(data = got.boundary$osm_multipolygons, linewidth=0.5, colour="grey") +
-  geom_sf(data=gothenburg.subdiv.merged, alpha=0.7, aes(fill=log10(avg_dijk_dist)), linewidth=0.8) +
-  #geom_sf(data = streets$osm_lines, linewidth=0.2, color = 'black') +
-  coord_sf(xlim = c(11.71, 12.16), 
-           ylim = c(57.57, 57.86), expand = TRUE, clip = "on") +
-  labs(title="Average distance to public charging point in Gothenburg",
-       subtitle = "By DeSO subdivision",
-       fill = "Distance") +
-  scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous"),
-                       limits= c(0, max(log10(gothenburg.subdiv.merged$avg_dijk_dist)))) +
+  geom_sf(data=gothenburg.subdiv.merged, alpha=0.9, linewidth=0.6) +
+  geom_sf(data=gothenburg.subdiv.merged, alpha=0.7, aes(fill=log(avg_accessibility)), linewidth=0.8) +
+   labs(title="Average distance to public charging point in Gothenburg",
+       subtitle = "DeSO subdivisions with min 75% rental housing",
+       fill = "Average accessibility",
+       caption = str_wrap("Values are shown in a logorithmic scale for better representation of the variences across the DeSOs. X DeSO areas had a average accessibility of zero, which returned infinate in the logorithmic scale. These Nas are shown as the lowest color on the color scale (blue)", 100)) +
+  scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous"), 
+                       #labels = c(0, 0.25, 0.5, 0.75, 1),
+                       na.value="#3B9AB2") +
   theme_custom
+
 ```
 
 ### Rentals
@@ -325,21 +339,20 @@ got.sub.new.rentals <- gothenburg.subdiv.merged %>%
 ggplot() +
   #geom_sf(data=gothenburg.subdiv) +
   geom_sf(data=gothenburg.subdiv.merged, alpha=0.9, linewidth=0.6) +
-  geom_sf(data=got.sub.new.rentals, alpha=0.7, aes(fill=(avg_dijk_dist)), linewidth=0.8) +
+  geom_sf(data=got.sub.new.rentals, alpha=0.7, aes(fill=(log(avg_accessibility))), linewidth=0.8) +
   #geom_sf(data = streets$osm_lines, linewidth=0.2, color = 'black') +
   coord_sf(xlim = c(11.71, 12.16), 
            ylim = c(57.57, 57.86), expand = TRUE, clip = "on") +
   labs(title="Average distance to public charging point in Gothenburg",
        subtitle = "DeSO subdivisions with min 75% rental housing",
        fill = "Distance") +
-  scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous"),
-                       limits= c(0, max((gothenburg.subdiv.merged$avg_dijk_dist)))) +
+  scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous")) +
   theme_custom
 ```
 
 
 ### Owner occupied
-```{r map_rental_desos}
+```{r map_owner_occupied_desos}
 # Filter out desos by rental majority areas
 got.sub.new.owner.occupied <- gothenburg.subdiv.merged %>% 
   filter(deso %in% deso.demographics.owner.occupied$deso)
@@ -347,7 +360,7 @@ got.sub.new.owner.occupied <- gothenburg.subdiv.merged %>%
 ggplot() +
   #geom_sf(data=gothenburg.subdiv) +
   geom_sf(data=gothenburg.subdiv.merged, alpha=0.9, linewidth=0.6) +
-  geom_sf(data=got.sub.new.owner.occupied, alpha=0.7, aes(fill=(avg_dijk_dist)), linewidth=0.8) +
+  geom_sf(data=got.sub.new.owner.occupied, alpha=0.7, aes(fill=log(avg_accessibility)), linewidth=0.8) +
   #geom_sf(data = streets$osm_lines, linewidth=0.2, color = 'black') +
   coord_sf(xlim = c(11.71, 12.16), 
            ylim = c(57.57, 57.86), expand = TRUE, clip = "on") +
@@ -355,8 +368,7 @@ ggplot() +
        subtitle = "DeSO subdivisions with min 75% owner-occupied housing",
        fill = "Distance",
        caption = str_wrap("Owner-occupied included all housing that is with owned outright by the resident, often a freestanding house and land (äganderätt), as well as owned apartments with a building managed by a body corporate (bostadsrätt). In both of these housing types, the residents have some or full control over facilities available to residents.", 100)) +
-  scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous"),
-                       limits= c(0, max((gothenburg.subdiv.merged$avg_dijk_dist)))) +
+  scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous")) +
   theme_custom
 ```
 

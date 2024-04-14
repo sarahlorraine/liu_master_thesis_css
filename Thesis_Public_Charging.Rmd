@@ -90,10 +90,10 @@ regSO_deso_table <- regSO_deso_table %>%
   select(deso, regso)
 
 # Create GOT kommon polygon from .gpkg file DeSOs
-gothenburg.subdiv <- geo %>% filter(kommunnamn == "Göteborg") %>% 
+gothenburg.subdiv <- geo %>% filter(kommunnamn == "Göteborg") #%>% 
 # Filter out category A and B deso areas
 # https://www.scb.se/hitta-statistik/regional-statistik-och-kartor/regionala-indelningar/deso---demografiska-statistikomraden/
-                             filter(grepl("C", deso) == TRUE)
+                             #filter(grepl("A", deso) == TRUE)
 
 # Convert Gothenburg subdivision polygons to same crs 4326 as osm data
 gothenburg.subdiv <- gothenburg.subdiv %>% st_transform(., 4326)
@@ -156,11 +156,6 @@ got_streets <- location %>%
   add_osm_features(feature = list("highway" = c(main_st, st), 
                                   # Add junctions (roundabouts etc)
                                   "junction" = available_tags('junction')$Value)) %>% osmdata_sf()
-
-# Turn return polygons to linestrings
- poly_to_lines <- st_cast(got_streets$osm_polygons, "LINESTRING")
-# bind all lines together
- got_streets.lines <- bind_rows(got_streets$osm_lines, poly_to_lines)
 
 ### Extra map objects if needed for visualising
 # water <- location %>%
@@ -256,14 +251,18 @@ got_streets <- location %>%
 
 ```{r setup_network_graph}
 ##### Preparing the road network graph of nodes and edges #####
-
+# Turn return polygons to linestrings
+ poly_to_lines <- st_cast(got_streets$osm_polygons, "LINESTRING")
+# bind all lines together
+ got_streets.lines <- bind_rows(got_streets$osm_lines, poly_to_lines)
+ 
 # Select just the "highway" and "junction" values of the osmlines as the rest are not needed in the network
 got_streets.lines <- got_streets.lines %>% select(highway, junction)
 
 got_streets_net <- as_sfnetwork(got_streets.lines, directed = FALSE)
 
 # Filter the network by the true Gothenburg subdivision polygon
-got_streets_net <- got_streets_net %>% st_filter(., gothenburg.subdiv, .predicate =st_intersects)
+got_streets_net <- got_streets_net %>% st_filter(., gothenburg.subdiv, .predicate = st_intersects)
 
 # Check the CRS to ensure it's correct before continuing: EPSG:4326
 st_crs(got_streets_net)
@@ -297,11 +296,11 @@ got_streets_net <- got_streets_net %>%
 #https://igraph.org/r/doc/components.html
 components <- got_streets_net %>% components(., mode = c("weak", "strong"))
 
-components$csize %>% as_tibble() %>% arrange(desc(value))
+top4 <- components$csize %>% as_tibble() %>% rownames_to_column(., "component") %>% arrange(desc(value)) %>% top_n(5)
 
 got_streets_net <- got_streets_net %>% activate(nodes) %>% mutate(component = components$membership)
 
-# !! TODO - Don't just filter these without solving Olofstorp DeSO
+# !! Västra Lindås becomes isolated from the network when filtering on the GOT boundaries. May need to fix this, or cater for that when discussing the results
 got_streets_net <- got_streets_net %>% activate(nodes) %>% filter(component == 1)
 # Add an "id" to each node in the network based on rowname index
 # !!Make sure that this is the last step done to the network otherwise filtering and other mutations may impact the correctness of this.
@@ -1019,7 +1018,7 @@ ggplot() +
   geom_sf(data=joined_charge_points, col="blue") +
   scale_fill_distiller(palette = "Oranges")
 
-avg_dist_deso %>% mutate(avg_accessibility = scale(avg_accessibility)) %>% filter(deso == "1480C3220")
+avg_dist_deso %>% mutate(avg_accessibility = (avg_accessibility)) %>% filter(deso == "1480C3220")
 ```
 
 ```{r plot_missings}
@@ -1075,7 +1074,7 @@ gothenburg.subdiv.merged %>% as_tibble() %>%
        y="") +
   theme_light()
 
-ggplot(gothenburg.subdiv.merged, aes(x=as.factor(regso), y=log(avg_accessibility), size=nodes)) +
+ggplot(gothenburg.subdiv.merged, aes(x=as.factor(regso), y=(avg_accessibility), size=nodes)) +
   geom_point(alpha=0.7)
 
 gothenburg.subdiv.merged %>% arrange(desc(avg_accessibility))
@@ -1172,7 +1171,7 @@ deso.demographics.WOMajorityHouses <- deso.demographics %>%
 
 deso.demographics.rentals <- deso.demographics %>%
   # Filter out desos with majority houses
-  filter(hyresrätt > 0.50)
+  filter(hyresrätt > 0.75)
 
 deso.demographics.owner.occupied <- deso.demographics %>%
 filter(äganderätt >= 0.75 | bostadsrätt >= 0.75)
@@ -1198,20 +1197,20 @@ summary(model3)
 ```
 
 ```{r lm_models_rental_areas, eval=TRUE, include=TRUE}
-model1.rentals <- lm(avg_accessibility~foreign+nodes+total_households, 
+model1.rentals <- lm(avg_dijk_dist~foreign+nodes+total_households, 
              data = deso.demographics.rentals)
 summary(model1.rentals)
-model2.rentals <- lm(avg_accessibility~foreign+nodes+`Median income tkr`, 
+model2.rentals <- lm(avg_dijk_dist~foreign+nodes+`Median income tkr`, 
              data = deso.demographics.rentals)
 summary(model2.rentals)
-model3.rentals <- lm(avg_accessibility~foreign+nodes+äganderätt+post_gymnasium_more_than_3, 
+model3.rentals <- lm(avg_dijk_dist~foreign+nodes+äganderätt+post_gymnasium_more_than_3, 
              data = deso.demographics.rentals)
 summary(model3.rentals)
 ```
 
 ```{r plot_demographic_results, eval=TRUE, include=TRUE}
-#scale(deso.demographics$avg_dist)
-ggplot(data = deso.demographics, aes(x=avg_dijk_dist, y=total_households)) + 
+
+ggplot(data = deso.demographics.rentals, aes(x=avg_dijk_dist, y=total_households)) + 
   geom_point(aes(color=ifelse(foreign > 0.49, "foreign majority", "swedish majority"))) +
   labs(color="Swedish vs foreign")
   #scale_x_continuous(limits = c(0, 40))
@@ -1244,7 +1243,7 @@ corr_matrix <- cor(deso.demographics.normalized)
 
 ```{r setup_pca_matrix.rentals}
 #### PCA and Correlations matrix
-deso.demographics.pca <- deso.demographics.rentals %>% select(-deso, -regso, -nodes, -ages) %>% drop_na()
+deso.demographics.pca <- deso.demographics.rentals %>% select(-deso, -regso, -nodes, -ages)
 deso.demographics.normalized <- scale(deso.demographics.pca)
 corr_matrix <- cor(deso.demographics.normalized)
 ```
