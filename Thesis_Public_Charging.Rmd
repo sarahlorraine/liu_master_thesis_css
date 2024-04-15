@@ -146,10 +146,6 @@ streets <- location %>%
   add_osm_feature(key = "highway", 
                   value = st) %>% osmdata_sf()
 
-junctions <- location %>%
-  add_osm_feature(key = "junction", 
-                  value = st) %>% osmdata_sf()
-
 ### Get all relevant streets all of gothenburg (to be used for the network)
 got_streets <- location %>%
                                   # Get all streets and motorways
@@ -265,14 +261,10 @@ got_streets_net <- as_sfnetwork(got_streets.lines, directed = FALSE)
 got_streets_net <- got_streets_net %>% st_filter(., gothenburg.subdiv, .predicate = st_intersects)
 
 # Check the CRS to ensure it's correct before continuing: EPSG:4326
-st_crs(got_streets_net)
+# st_crs(got_streets_net)
 
 # Use the “spatial morpher” function to create a subdivision of edges
 got_streets_net <- convert(got_streets_net, to_spatial_subdivision)
-
-# removal of nodes that have only two edges connected, also called “smoothing of pseudo-nodes”
-# got_streets_simple <- convert(got_streets_net, to_spatial_smooth)
-# !! For this case simplification may be counter productive due to the need to measure isodistances and reduces precision
 
 # Further cleaning
 got_streets_net <- got_streets_net %>% 
@@ -286,22 +278,25 @@ got_streets_net <- got_streets_net %>%
 # Remove "islands" of nodes and edges isolated from the wider road network.
 # Threshold is set to 6
 # !!! This is a problematic way to remove islands and could cause disruptions in the wider network. 
-# Instead, use Components
+# Instead, use Components below
 # got_streets_net <- got_streets_net %>% 
 #   activate(nodes) %>% 
 #   mutate(neighbourhood = local_size(order = 6)) %>% 
 #   filter(neighbourhood > 5)
+##got_streets_net.unfiltered <- got_streets_net.unfiltered %>% activate(edges) %>% mutate(edge_id = c(1:n()))
 
-# Check the number of components in the network (isolated islands not connected to the main network)
+# Check the number of components in the network (Number of isolated islands not connected to the main network)
 #https://igraph.org/r/doc/components.html
 components <- got_streets_net %>% components(., mode = c("weak", "strong"))
 
-top4 <- components$csize %>% as_tibble() %>% rownames_to_column(., "component") %>% arrange(desc(value)) %>% top_n(5)
+components$csize %>% as_tibble() %>% rownames_to_column(., "component") %>% arrange(desc(value))
 
 got_streets_net <- got_streets_net %>% activate(nodes) %>% mutate(component = components$membership)
 
+# After validating the component results, all components aside from 1 contained areas that were not used in this analysis, such as isolated industrial access roads and private access roads or access paths
 # !! Västra Lindås becomes isolated from the network when filtering on the GOT boundaries. May need to fix this, or cater for that when discussing the results
 got_streets_net <- got_streets_net %>% activate(nodes) %>% filter(component == 1)
+
 # Add an "id" to each node in the network based on rowname index
 # !!Make sure that this is the last step done to the network otherwise filtering and other mutations may impact the correctness of this.
 got_streets_net <- got_streets_net %>% 
@@ -401,7 +396,7 @@ p2p.data <- p2p.data %>% mutate(lng = lon) %>% filter(powerRange.min > 0)
 p2p.data <- p2p.data %>% filter(between(lng, coords[1], coords[3]) &
                                                     between(lat,coords[2], coords[4]))
 
-charge_points.p2p <- p2p.data %>% filter(vehicleTypes.car == TRUE) %>% select(lat, lng)
+charge_points.p2p <- p2p.data %>% filter(vehicleTypes.car == TRUE) %>% select(-status, -vehicleTypes.bike, -vehicleTypes.motorbike)# %>% select(lat, lng)
 
 charge_points.p2p.geo <- st_as_sf(charge_points.p2p, 
                                   coords = c("lng", "lat"), crs = 4326)
@@ -447,10 +442,10 @@ getChargePoint <- function(chargeId) {
 
 ### Snap charging points to nodes
 # Alternative. nearest_feature https://cran.r-project.org/web/packages/sfnetworks/vignettes/sfn03_join_filter.html
-charge_point.coords <- charge_points.long_lat.matrix %>% as_tibble() %>% st_as_sf(coords = c("X", "Y"), crs = 4326)
+#charge_point.coords <- charge_points.long_lat.matrix %>% as_tibble() %>% st_as_sf(coords = c("X", "Y"), crs = 4326)
 
 # Find indices of nearest nodes.
-nearest_nodes <- st_nearest_feature(charge_point.coords, got_streets_net)
+nearest_nodes <- st_nearest_feature(charge_points.p2p.geo, got_streets_net)
 
 # Snap geometries of charge points to the network.
 charge_points.p2p.geo.nodes <- charge_point.coords %>% 
@@ -471,27 +466,37 @@ charge_points.osm %>% nrow()
 charge_points.p2p.geo %>% nrow()
 
 # Get nearest nodes in the pre-snapped P2P charge point data
-nearest_nodes.osm <- st_nearest_feature(charge_points.osm, got_streets_net)
+nearest_nodes.osm <- st_nearest_feature(charge_points.osm, charge_points.p2p.geo.nodes)
 
 charge_points.osm.nodes <- charge_points.osm %>% 
-  st_set_geometry(st_geometry(got_streets_net)[nearest_nodes.osm]) %>% 
+  st_set_geometry(st_geometry(charge_points.p2p.geo.nodes)[nearest_nodes.osm]) %>% 
   mutate(nodeId = nearest_nodes.osm)
 
-joined_charge_points <- st_join(charge_points.p2p.geo.nodes, charge_points.osm.nodes, left=TRUE)
+charge_points.osm.nodes.df <- charge_points.osm.nodes %>% as.data.frame()
+charge_points.p2p.geo.nodes.df <- charge_points.p2p.geo.nodes %>% as.data.frame() %>% rownames_to_column(., "charge_id")
 
-capacities <- joined_charge_points %>% 
-  mutate(capacity = as.integer(ifelse(is.na(capacity), 1, capacity))) %>%
-  # Change NA capacity to 1
-  group_by(nodeId.x) %>% 
-  summarise(capacity = sum(capacity)) %>% arrange(nodeId.x)
-  
+joined_charge_points <- merge(charge_points.osm.nodes.df, charge_points.p2p.geo.nodes.df, by.x="nodeId", by.y="charge_id", all.y = TRUE)
+joined_charge_points <- joined_charge_points %>% 
+  # Add capacity values and include 1 as default if NA
+  mutate(capacity = as.integer(ifelse(is.na(capacity), 1, capacity))) %>% 
+  # Rename geometry and remove duplicates
+  mutate(geometry = geometry.y) %>% 
+  select(-geometry.x, -geometry.y) %>% st_as_sf()
+
+
+#joined_charge_points <- st_join(charge_points.p2p.geo.nodes, charge_points.osm.nodes, left=TRUE)
+
+# capacities <- joined_charge_points %>% 
+#   mutate(capacity = as.integer(ifelse(is.na(capacity), 1, capacity))) %>%
+#   # Change NA capacity to 1
+#   group_by(nodeId.x) %>% 
+#   summarise(capacity = sum(capacity)) %>% arrange(nodeId.x)
+joined_charge_points %>% distinct(nodeId)
   
 joined_charge_points <- joined_charge_points %>%
-  distinct(nodeId.x, .keep_all = TRUE) %>%
-  rename(nodeId = "nodeId.x") %>% 
-  arrange(nodeId) %>% 
-  # Add the combined capacity values
-  mutate(capacity = capacities$capacity) %>%
+  #distinct(nodeId.x, .keep_all = TRUE) %>%
+  rename(chargeId = "nodeId", nodeId = "nodeId.y") %>% 
+  arrange(nodeId) %>%
   st_as_sf()
 
 
@@ -499,7 +504,11 @@ joined_charge_points <- joined_charge_points %>%
 # Add row names as charge point ids
 joined_charge_points <- joined_charge_points %>% rownames_to_column(., "charge_id")
 
+# Total charging stations
 joined_charge_points %>% nrow()
+
+# Total charging capacity of all charging stations
+sum(joined_charge_points$capacity)
 ```
 
 ```{r plot_network_graph, eval=TRUE, include=TRUE}
@@ -522,7 +531,6 @@ Calculate the closest charge point to a node/intersection using K nearest neighb
 #### FINDING NEAREST CHARGE POINTS #####
 
 ### As the crow flies method (Euclidean distance)
-
 knn.sf <- nngeo::st_nn(x = got_streets_net %>% activate(nodes), 
              y = joined_charge_points,
              k = 5,
@@ -872,7 +880,7 @@ distances_per_point.sf <- distances_per_point.sf %>%
   select(from_node, to_node, chargeId, dijkstras_distance, knn_distance, everything(), -distance)
 
 # Filter out nodes that are the same as the corresponding charge point as this distance is of course zero.
-distances_per_point.sf %>% view()
+#distances_per_point.sf %>% view()
 distances_per_point.sf %>% filter(from_node == to_node)
 
 # Filter the nodes to the GOT DeSOs to remove those that fall outside. This is just used for this initial plotting
@@ -888,7 +896,7 @@ ggplot() +
   geom_sf(data=joined_charge_points, col="blue") +
   # DeSO Subdivisions
   geom_sf(data = gothenburg.subdiv, alpha=0.3, linewidth=0.6, colour="#8778D7", fill="#90C59B") + 
-  scale_color_distiller(palette = "Oranges")
+  scale_color_distiller(palette = "Oranges") + theme_void()
 ```
 
 
@@ -921,14 +929,16 @@ distance_travel_matrix_dijk <- distance_travel_matrix_dijk %>%
   mutate(from_id = from_node, to_id = to_node, length = dijkstras_distance) %>%
   select(from_id, to_id, length, deso) %>% as_tibble()
 
+grouped_charge_points <- joined_charge_points %>% count(nodeId) %>% as_tibble() %>% select(-geometry)
+
 ### TODO
 ### Get the number of chargers per point here, rather than defaulting to 1
 got_streets_net.with_charge <- got_streets_net %>% 
   activate(nodes) %>% 
   # Get charge point capacity
   mutate(charge_points = as.numeric(
-    ifelse(id %in% joined_charge_points$nodeId, 
-                    joined_charge_points.df[match(id, joined_charge_points$nodeId),]$capacity,
+    ifelse(id %in% grouped_charge_points$nodeId, 
+                    grouped_charge_points[match(id, grouped_charge_points$nodeId),]$n,
                     0)
     )
   )  
@@ -1022,7 +1032,7 @@ avg_dist_deso %>% mutate(avg_accessibility = (avg_accessibility)) %>% filter(des
 ```
 
 ```{r plot_missings}
-# Filter and plot the missing data_if any
+# Filter and plot the missing data_if any, to validate if the function worked correctly
 
 zero_values <- joined_deso.nodes %>% 
   filter(dijkstras_distance == 0)
@@ -1053,11 +1063,11 @@ missings <- left_join(got_streets_nodes, success, keep = TRUE) %>%
 ggplot() + 
  # geom_sf(data = got_streets_net %>% activate(edges) %>% as_tibble() %>% st_as_sf(), size=0.4, col="grey") +
   #geom_sf(data = success, aes(fill=(nodes)), size=0.4) +
-  geom_sf(data = missings, size=0.4, col="red") +
   # DeSO Subdivisions
   geom_sf(data = gothenburg.subdiv, alpha=0.3, linewidth=0.6, colour="#8778D7", fill="#90C59B") + 
   # Charge points
   geom_sf(data=joined_charge_points, col="blue") +
+  geom_sf(data = missings, size=0.4, col="red") +
   #geom_sf(data = main_streets$osm_lines %>% select(highway), size=0.4, col="black") +
   scale_fill_distiller(palette = "Oranges")
 ```
@@ -1209,7 +1219,6 @@ summary(model3.rentals)
 ```
 
 ```{r plot_demographic_results, eval=TRUE, include=TRUE}
-
 ggplot(data = deso.demographics.rentals, aes(x=avg_dijk_dist, y=total_households)) + 
   geom_point(aes(color=ifelse(foreign > 0.49, "foreign majority", "swedish majority"))) +
   labs(color="Swedish vs foreign")

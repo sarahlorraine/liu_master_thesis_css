@@ -10,6 +10,10 @@ editor_options:
 Note: Run Charge_Analysis first
 # Theme setup
 ```{r plot designs}
+library(extrafont)
+# font_import() # First time import of local fonts
+# loadfonts(device = "win")
+windowsFonts()
 #### PLOT DESIGN ####
 # Set color palette
 pal <- c("#bb3e03","#ee9b00","yellow", "#e9d8a6","#94d2bd","#0a9396","#005f73")
@@ -23,26 +27,36 @@ theme_custom <- theme_void()+
     plot.margin = margin(1,1,10,1,"pt"),
     plot.background = element_rect(fill="white",color=NA),
     legend.position = "bottom",
-    legend.title = element_text(hjust=0.5,color="black",face="bold"),
+    text = element_text(size = 12, family = "Cambria"),
+    legend.title = element_text(hjust=0.5,color="black"),
     legend.text = element_text(color="black")
   )
+
 
 ```
 # Descriptive Stats
 ## Charge points
 ```{r charge_point_ds}
 # Descriptive Stats for Charge points
-p2p.data %>%
-rename("Latitude" = lat,
-       "Longitude" = lon,
-       "Car charging" = vehicleTypes.car,
-       "Motorbike charging" = vehicleTypes.motorbike,
-       "Electic bike charging" = vehicleTypes.bike,
-       "Min power range" = powerRange.min,
-       "Max power range" = powerRange.max,
-       "Fast charger (50kwh+)" = isFastCharge) %>% 
-  select(-id, -full_address, -status, -lng) %>%
-  stargazer::stargazer(type="latex", style="asr", digits=2, title = "PEV public charge points across Gothenburg city", notes = "Charging point data sources from Place to Plug")
+joined_charge_points %>% 
+  mutate(X = (joined_charge_points %>% st_coordinates() %>% as_tibble())$X,
+         Y = (joined_charge_points %>% st_coordinates() %>% as_tibble())$Y) %>%
+  mutate(fee = factor(ifelse(is.na(`parking:fee`), "no", `parking:fee`))) %>%
+  as.data.frame() %>%
+  rename("Latitude" = X,
+         "Longitude" = Y,
+         "Capacity" = capacity,
+         "Parking fee" = fee,
+         # "Electic bike charging" = vehicleTypes.bike,
+         # "Min power range" = powerRange.min,
+         # "Max power range" = powerRange.max,
+         # "Fast charger (50kwh+)" = isFastCharge
+         ) %>% 
+  select("Latitude", "Longitude", "Capacity", "Parking fee", -geometry) %>%
+  stargazer::stargazer(type="latex", style="asr", 
+                       summary = TRUE,
+                       title = "PEV public charging points across Gothenburg city", 
+                       notes = "Charging point data sourced from Place to Plug and Open Street Maps")
 
 ```
 
@@ -55,7 +69,7 @@ joined_deso.nodes %>% as.data.frame() %>%
 rename("From node" = from_node,
         "Charge point node" = to_node,
         "Nearest neighbour distance" = knn_distance,
-       "Shortest path" = dijkstras_distance) %>%
+        "Shortest path" = dijkstras_distance) %>%
 #        "Motorbike charging" = vehicleTypes.motorbike,
 #        "Electic bike charging" = vehicleTypes.bike,
 #        "Min power range" = powerRange.min,
@@ -70,7 +84,7 @@ stargazer::stargazer(type="latex",
                      summary = TRUE,
                      digits=2,
                      title = "Gothenburg road network graph: Descriptive statistics", 
-                     notes = "Charging point data sources from Place to Plug")
+                     notes = "Charging point data sourced from Place to Plug and Open Street Maps")
 
 ```
 # Map plots: Network
@@ -84,23 +98,26 @@ ggplot() +
   #geom_sf(data = gothenburg.subdiv, alpha=0.6, linewidth=0.6, colour="#8778D7", fill="#90C59B") +
   geom_sf(data = got_streets_net %>% activate(edges) %>% as_tibble() %>% st_as_sf(), linewidth=0.2, color = 'grey') +
   #geom_sf(data = main_streets$osm_lines, alpha=0.5, color = "#1e00be", linewidth=0.6) + 
-  geom_sf(data = joined_charge_points, size=0.8, aes(color=log(capacity))) +
-  # coord_sf(xlim = c(11.71, 12.16), 
-  #          ylim = c(57.58, 57.86), 
-  #          expand = TRUE, clip="on") +
-  labs(title="Public PEV charge points in Gothenburg City",
+  geom_sf(data = joined_charge_points, aes(size=(capacity), color=capacity)) +
+  scale_color_distiller(palette = "Oranges", breaks = c(1, 25, 50, 75, 100), guide="none") +
+  scale_size(breaks = c(1, 25, 50, 75, 100)) +
+  labs(#title="Public PEV charging points in Gothenburg municipality",
      subtitle = "",
-     fill = "") +
-  theme_custom + theme(legend.position = "")
+     color = "",
+     size = "Capacity") + theme_custom
+```
 
+
+```{r interactive_map}
+got_streets_net.unfiltered %>% activate(edges) %>% filter(from == 7790 | to==7790) %>% filter(highway== "tertiary") %>% as_tibble() %>% st_as_sf() %>% plot()
 
 library(tmap)
 tmap_mode("view") # set to interactive mode
 tm_tiles("CartoDB.Positron") +
   tm_shape(st_as_sf(got_streets_net, "edges")) +
-  tm_lines(col = "highway", colorNA = "red")
-  #tm_shape(st_as_sf(got_streets_net, "nodes")) +
-  #tm_dots(col = st_as_sf(got_streets_net, "nodes")$component)
+  tm_lines(col = "highway", colorNA = "red") +
+  tm_shape(st_as_sf(got_streets_net.unfiltered, "nodes"))+
+  tm_dots(col = st_as_sf(got_streets_net, "nodes")$id)
 ```
 
 ## DeSO areas
@@ -109,20 +126,12 @@ tm_tiles("CartoDB.Positron") +
 ggplot() +
   #geom_sf(data = water$osm_multipolygons, fill = 'light blue') + 
   geom_sf(data=gothenburg.subdiv, alpha=0.6, linewidth=0.6, colour="#8778D7", fill="#90C59B") +
-  #geom_sf(data = got.boundary$osm_multipolygons, linewidth=1, colour="black", fill="transparent") +
-
- # geom_sf(data = land$osm_lines, color = 'light blue') + 
-  #geom_sf(data = streets$osm_lines, linewidth=0.2, color = '#1e00be') +
-  #geom_sf(data = main_streets$osm_lines, alpha=0.5, color = "#1e00be", linewidth=0.6) + 
-  #geom_sf(data = charge_points.p2p.geo, size=0.8, color="#1e00be") +
-  coord_sf(xlim = c(11.59, 12.21), 
-           ylim = c(57.51, 57.86), 
-           expand = TRUE, clip="on") +
+  geom_sf_text(data = gothenburg.subdiv, label=gothenburg.subdiv$deso, 
+               size=(scale(center=FALSE, as.integer(gothenburg.subdiv$area)) / 2), color="#1e00be") +
   # labs(title="Map of demographically statistical areas (DeSOs)",
   #    subtitle = "Gothenburg Municipality",
   #    fill = "") +
-  theme_custom + theme(legend.position = "", plot.background = element_rect(fill = "white"))
-
+  theme_custom
 ```
 
 ## Nodes
@@ -429,6 +438,7 @@ deso.demographics %>% arrange(desc(total_households)) %>% head() %>%
   rename(#"Nodes" = nodes, 
          #"Average distance to PEV charge point" = avg_dijk_dist,
          #"Potential accessibility" = avg_dd_accessibility,
+         "RegSo" = regso,
          "Area (m^2)" = area_m2,
          "Population" = pop,
          "Total households" = total_households,
@@ -443,9 +453,9 @@ deso.demographics %>% arrange(desc(total_households)) %>% head() %>%
          "Owner-occupied house %" = äganderätt,
          "Avg cars per household" = cars_per_household,
          "Total cars on road" = bilar_i_trafik) %>%
-  select(-nodes, -education_missing, -avg_accessibility, -avg_dijk_dist, -ages) %>% 
+  select(-nodes, -education_missing, -avg_accessibility, -avg_dijk_dist, -avg_euc_dist, -ages) %>% 
   stargazer::stargazer(type="latex", style="asr", digits = 2, digits.extra = 0,  flip = TRUE,  summary=FALSE, 
-                       title = "DeSO demographic data for Gothenburg municipality: Sample set", notes = "DeSO demographics are from 2022.")
+                       title = "DeSO demographic data for Gothenburg municipality: Sample set", notes = "DeSO demographics from 2022.")
 ```
 
 ```{r demographics_rentals_ds}
