@@ -19,6 +19,12 @@ library(wesanderson)
 library(knitr)
 library(rlist)
 library(RColorBrewer)
+# Robustness checks
+library(broom)
+library(car)
+library(ggpubr)
+library(ivreg)
+library(olsrr)
 
 ## GiS handling
 library(osmdata)
@@ -265,7 +271,7 @@ got_streets_net <- got_streets_net %>% st_filter(., gothenburg.subdiv, .predicat
 
 # Use the “spatial morpher” function to create a subdivision of edges
 got_streets_net <- convert(got_streets_net, to_spatial_subdivision)
-
+?edge_is_multiple
 # Further cleaning
 got_streets_net <- got_streets_net %>% 
   activate("edges") %>% 
@@ -288,7 +294,7 @@ got_streets_net <- got_streets_net %>%
 # Check the number of components in the network (Number of isolated islands not connected to the main network)
 #https://igraph.org/r/doc/components.html
 components <- got_streets_net %>% components(., mode = c("weak", "strong"))
-
+components$csize %>% as_tibble() %>% rownames_to_column(., "component") %>% count(value) %>% arrange((value)) %>% view()
 components$csize %>% as_tibble() %>% rownames_to_column(., "component") %>% arrange(desc(value))
 
 got_streets_net <- got_streets_net %>% activate(nodes) %>% mutate(component = components$membership)
@@ -710,13 +716,13 @@ dijkstras_cp_to_node.avg <- dijkstras_cp_to_node %>%
 
 test_from_node <- got_streets_net %>%
   activate(nodes) %>%
-  filter(id == 4) %>%
+  filter(id == 298) %>%
   pull(id)
 
 # to node is the closest node in the network 
 test_to_node <- got_streets_net %>%
   activate(nodes) %>% 
-  filter(id == 27843) %>%
+  filter(id == 688) %>%
   pull(id)
 
 # Get the shortest path between each of these points
@@ -751,22 +757,17 @@ ggplot() +
   # Label nodes
   #geom_sf_label(data= sample.nodes, label=sample.nodes$nodeID) +
   # Dijkstra's paths
-   geom_sf(data = test_path_graph %>% activate(edges) %>% as_tibble() %>% st_as_sf(), lwd = 3.5, col = '#bb3e03') +
+   geom_sf(data = test_path_graph %>% activate(edges) %>% as_tibble() %>% st_as_sf(), lwd = 1.5, col = '#bb3e03') +
    # charge points
-   geom_sf(data = got_streets_net %>% activate(nodes) %>% as_tibble() %>% filter(id %in% c(test_from_node, test_to_node)), size = 4, col = '#3B9AB2') +
-   geom_sf_label(data = got_streets_net %>% activate(nodes) %>% as_tibble() %>% filter(id %in% c(test_from_node, test_to_node)), 
-               label = nodes.df$id, col="black", fill="#94d2bd", label.size = 1) +
-  # Charge Points
-  #geom_sf(data=charge_points.p2p.geo.snaps, col="red")
-  # Coords All paths
-  #coord_sf(xlim = c(11.986, 11.992),ylim = c(57.7170, 57.7135),expand = TRUE, clip = "on")
-  # Coords test path
-  coord_sf(xlim = c(11.992, 12.020),
-           ylim = c(57.709, 57.7231),
+   geom_sf(data = got_streets_net %>% activate(nodes) %>% as_tibble() %>% filter(id %in% c(test_from_node, test_to_node)), size = 2.5, col = '#3B9AB2') +
+   geom_sf_text(data = got_streets_net %>% activate(nodes) %>% as_tibble() %>% filter(id %in% c(test_from_node, test_to_node)), label = nodes.df$id, col="black", 
+                fill="#94d2bd", 
+                label.size = 1, 
+                nudge_x = 0.001) +
+  # Coordinates of path
+  coord_sf(xlim = c(11.925, 11.945),
+           ylim = c(57.6592, 57.6715),
            expand = TRUE, clip = "on") + theme_void()
-  # coord_sf(xlim = c(11.71, 12.16),
-  #          ylim = c(57.58, 57.86),
-  #          expand = TRUE, clip="on")
 
 
 ```
@@ -979,10 +980,11 @@ negative_exp_dijk <- gravity(
     opportunity = "charge_points",
     travel_cost = "length",
     # Negative exponential cost function
-    decay_function = decay_exponential(decay_value = 0.5)
+    decay_function = decay_exponential(decay_value = 0.1)
   )
 
 view(negative_exp_dijk)
+negative_exp_dijk %>% filter(charge_points == 0)
 ```
 
 ### Avg distance by DeSO 
@@ -1012,7 +1014,7 @@ avg_dist_deso <- joined_deso.nodes %>% as_tibble() %>%
             avg_dijk_dist = mean(dijkstras_distance, na.rm=TRUE),
             avg_euc_dist = mean(knn_distance, na.rm=TRUE),
             avg_accessibility = mean(potential_accessibility, na.rm=TRUE)) %>% 
-  arrange(avg_dijk_dist)
+  arrange(avg_accessibility)
 
 # Join with the ReGSO data to get the associated ReGSO neighbourhood name
 avg_dist_deso <- merge(avg_dist_deso, regSO_deso_table, by="deso") %>% 
@@ -1084,7 +1086,7 @@ gothenburg.subdiv.merged %>% as_tibble() %>%
        y="") +
   theme_light()
 
-ggplot(gothenburg.subdiv.merged, aes(x=as.factor(regso), y=(avg_accessibility), size=nodes)) +
+ggplot(gothenburg.subdiv.merged, aes(x=as.factor(regso), y=(sqrt(avg_accessibility)), size=nodes)) +
   geom_point(alpha=0.7)
 
 gothenburg.subdiv.merged %>% arrange(desc(avg_accessibility))
@@ -1095,7 +1097,9 @@ gothenburg.subdiv.merged %>% arrange(desc(avg_accessibility))
 ### DeSO subdivision demographics
 
 ```{r load_demographic_data}
+# Order the subdivisions by Regso
 gothenburg.subdiv.merged <- gothenburg.subdiv.merged %>% arrange(regso)
+# Get a list of ReGSO data
 regso.list <- avg_dist_deso %>% select(deso, regso)
 # Read csvs for deso data per demographic
 deso.income <- read_csv("data/income_demographics_deso.csv")
@@ -1108,35 +1112,40 @@ deso.households <- read_csv("data/households_demographics_deso.csv")
 ```
 
 ```{r clean_demographic_data}
-# Cleaning
+# Cleaning Deso data
 deso.foreignborn <- deso.foreignborn %>% 
   mutate(swedish = swedish / total, foreign = foreign / total) %>% 
   select(-total) %>%
   filter(deso %in% regso.list$deso)
+
 deso.income <- deso.income %>% 
   select(deso, `Median income tkr`) %>%
   filter(deso %in% regso.list$deso)
+
 deso.education <- deso.education %>% 
   filter(deso %in% regso.list$deso) %>%
   mutate(total = rowSums(.[, -1]),
-         middle_school = middle_school / total,
-         gymnasium = gymnasium / total,
-         post_gymnasium_less_than_3 = post_gymnasium_less_than_3 / total,
-         post_gymnasium_more_than_3 = post_gymnasium_more_than_3 / total,
+         # Define higher education
+         higher_education = (post_gymnasium_less_than_3 + post_gymnasium_more_than_3) / total,
+         # define lower education
+         lower_education = (middle_school + gymnasium) / total,
          education_missing = education_missing / total) %>%
-  select(-total)
+  select(deso, higher_education, lower_education, education_missing)
+
 deso.housing <- deso.housing %>% 
   filter(deso %in% regso.list$deso) %>%
   select(deso, hyresrätt, bostadsrätt, äganderätt) %>%
   filter(deso %in% regso.list$deso) %>%
   mutate(total = rowSums(.[, -1]),
-         hyresrätt = hyresrätt / total,
-         bostadsrätt = bostadsrätt / total,
-         äganderätt = äganderätt / total) %>%
-  select(-total)
+         rental = hyresrätt / total,
+         condominium = bostadsrätt / total,
+         housing = äganderätt / total) %>%
+  select(deso, rental, condominium, housing)
+
 deso.cars <- deso.cars %>%
-  filter(deso %in% regso.list$deso) %>% 
-  select(deso, bilar_i_trafik)
+  filter(deso %in% regso.list$deso) %>%
+  mutate(cars_on_road = bilar_i_trafik) %>%
+  select(deso, cars_on_road)
 
 deso.age <- deso.age %>% 
   filter(deso %in% regso.list$deso) %>%
@@ -1147,11 +1156,12 @@ deso.pop <- deso.age %>%
   filter(deso %in% regso.list$deso) %>% 
   mutate(pop = total, 
          ages = list(data_frame(across(colnames(deso.age[,3:19]))))) %>% 
-  select(deso, pop, ages)
+  select(deso, pop) # ages
 
 deso.households <- deso.households %>%
   filter(deso %in% regso.list$deso) %>% 
   select(deso, total_households) 
+
 deso_aream2 <- gothenburg.subdiv %>% as_tibble() %>% 
   mutate(area_m2 = as.double(area)) %>% 
   select(deso, area_m2)
@@ -1169,7 +1179,7 @@ deso.demographics <- deso_aream2 %>%
   merge(., deso.housing, by="deso") %>%
   merge(., deso.cars, by="deso") %>%
   # Calculate average cars per household
-  mutate(cars_per_household = bilar_i_trafik / total_households) %>%
+  mutate(cars_per_household = cars_on_road / total_households) %>%
   select(deso, regso, nodes, avg_accessibility, avg_dijk_dist, avg_euc_dist,  everything()) %>%
   arrange(desc(avg_accessibility))
 
@@ -1177,49 +1187,132 @@ deso.demographics <- deso_aream2 %>%
 
 deso.demographics.WOMajorityHouses <- deso.demographics %>%
   # Filter out desos with majority houses
-  filter(äganderätt < 0.5)
+  filter(housing < 0.5)
 
 deso.demographics.rentals <- deso.demographics %>%
   # Filter out desos with majority houses
-  filter(hyresrätt > 0.75)
+  filter(rental > 0.50)
 
 deso.demographics.owner.occupied <- deso.demographics %>%
-filter(äganderätt >= 0.75 | bostadsrätt >= 0.75)
+filter(housing >= 0.75 | condominium >= 0.75)
 
 # # Write files to csv if needed
 # write_csv(deso.demographics %>% select(-ages), "data/deso_demographics.csv")
 # write.csv(deso.demographics.rentals %>% select(-ages), "data/deso_demographics_rentals.csv")
+
+
 ```
 
-### Logistic regressions
+### Linear regressions
 
 ```{r lm_models_all, eval=TRUE, include=TRUE}
+# (avg_dijk_dist / 1000) changes the dependent variable from meters to kilometers
+deso.demographics_na.rm <- deso.demographics %>% 
+  # Remove the two NAs of Billdal
+  filter(avg_accessibility > 0) %>% 
+  rownames_to_column(., "i") %>% 
+  # Remove outlier # 43
+  filter(i != 43)
+
 ## For ease of readability it would be good to scale the average distance
-model1 <- lm(avg_dijk_dist~foreign+nodes+äganderätt+total_households, 
-             data = deso.demographics)
+model1 <- lm(log10(avg_accessibility)~foreign+pop+nodes+housing, 
+             data = deso.demographics_na.rm)
 summary(model1)
-model2 <- lm(avg_dijk_dist~foreign+nodes+äganderätt+`Median income tkr`,
-             data = deso.demographics)
+model2 <- lm(log10(avg_accessibility)~foreign+pop+nodes+housing+`Median income tkr`, 
+             data = deso.demographics_na.rm)
 summary(model2)
-model3 <- lm(avg_dijk_dist~foreign+nodes+äganderätt+post_gymnasium_more_than_3+education_missing, 
-             data = deso.demographics)
+model3 <- lm(log10(avg_accessibility)~foreign+pop+nodes+housing+cars_on_road, 
+             data = deso.demographics_na.rm)
 summary(model3)
 ```
 
+```{r linear_regression.weighted}
+wt.1 <- 1 / lm(abs(model1$residuals) ~ model1$fitted.values)$fitted.values^2
+
+model1.wt <- lm(log10(avg_accessibility)~foreign+pop+nodes+housing,  
+             data = deso.demographics_na.rm, weights=wt.1)
+summary(model1.wt)
+
+wt.2 <- 1 / lm(abs(model2$residuals) ~ model2$fitted.values)$fitted.values^2
+
+model2.wt <- lm(log10(avg_accessibility) ~foreign+pop+nodes+housing+`Median income tkr`,  
+             data = deso.demographics_na.rm, weights=wt.2)
+summary(model2.wt)
+
+wt.3 <- 1 / lm(abs(model3$residuals) ~ model3$fitted.values)$fitted.values^2
+
+model3.wt <- lm(log10(avg_accessibility)~foreign+pop+nodes+housing+cars_on_road,  
+             data = deso.demographics_na.rm, weights=wt.3)
+summary(model3.wt, diagnostics=TRUE)
+
+colnames(deso.demographics_na.rm)
+```
+
+```{r lm.test}
+# Min/Max log accessibility
+deso.demographics_na.rm %>% mutate(avg_accessibility = log10(avg_accessibility)) %>% select(avg_accessibility) %>% max()
+
+# Confidence intervals
+confint(model1.wt)
+
+deso.demographics_na.rm %>% arrange(desc(avg_accessibility)) %>% select(avg_accessibility) %>% summarize(mean = mean(avg_accessibility))
+plot(model1.wt)
+
+# Homoscedasticity test
+ggplot(data = deso.demographics_na.rm, aes(x = fitted(model1), y = resid(model1))) +
+  geom_point() +
+  geom_smooth(method = "loess", se = FALSE, linetype = "dashed") +
+  labs(x = "Fitted Values", y = "Residuals") +
+  ggtitle("Residuals vs Fitted Values") +
+  theme(text = element_text(size = 12, family = "Cambria")) + theme_minimal()
+
+# -- Breusch-Pagan test # -- Breusch-Pagan test # -- Breusch-Pagan test 
+# https://sscc.wisc.edu/sscc/pubs/RegDiag-R/homoscedasticity.html
+# All non-weighted LR pass the HSC test, but only model 3 of the weighted model passes
+ncvTest(model1)
+
+# Endogeneity, Wald test
+# A Wald test can be used to test if one or more parameters in a model are equal to certain values.
+model3_wt.lv <- ivreg(log10(avg_accessibility)~foreign+total_households+nodes+housing+cars_on_road,  
+             data = deso.demographics_na.rm, weights=wt.3)
+
+summary(model3_wt.lv)
+
+# Multicollinearity : VIF values
+# https://www.statology.org/multicollinearity-in-r/
+# VIF = 1: There is no correlation between a given predictor variable and any other predictor variables in the model.
+# VIF between 1 and 5: There is moderate correlation between a given predictor variable and other predictor variables in the model.
+# VIF > 5: There is severe correlation between a given predictor variable and other predictor variables in the model.
+vif(model1)
+vif(model2)
+vif(model3)
+vif(model1.wt)
+vif(model2.wt)
+vif(model3.wt)
+
+## Normality of residuals
+ols_plot_resid_qq(model1)
+ols_plot_resid_fit(model1)
+ols_plot_resid_hist(model1)
+ols_test_correlation(model1)
+plot(model1, 2)
+```
+
+
 ```{r lm_models_rental_areas, eval=TRUE, include=TRUE}
-model1.rentals <- lm(avg_dijk_dist~foreign+nodes+total_households, 
+model1.rentals <- lm((avg_dijk_dist / 1000)~foreign+avg_accessibility+nodes+housing,  
              data = deso.demographics.rentals)
-summary(model1.rentals)
-model2.rentals <- lm(avg_dijk_dist~foreign+nodes+`Median income tkr`, 
+
+model2.rentals <- lm((avg_dijk_dist / 1000)~foreign+avg_accessibility+nodes+housing+`Median income tkr`,
              data = deso.demographics.rentals)
 summary(model2.rentals)
-model3.rentals <- lm(avg_dijk_dist~foreign+nodes+äganderätt+post_gymnasium_more_than_3, 
+model3.rentals <- lm((avg_dijk_dist /1000)~foreign+avg_accessibility+nodes+housing+total_households+cars_on_road,
              data = deso.demographics.rentals)
 summary(model3.rentals)
 ```
 
 ```{r plot_demographic_results, eval=TRUE, include=TRUE}
-ggplot(data = deso.demographics.rentals, aes(x=avg_dijk_dist, y=total_households)) + 
+ggplot(data = deso.demographics_na.rm, aes(x=log10(avg_accessibility), y=pop)) + 
   geom_point(aes(color=ifelse(foreign > 0.49, "foreign majority", "swedish majority"))) +
   labs(color="Swedish vs foreign")
   #scale_x_continuous(limits = c(0, 40))
@@ -1229,10 +1322,11 @@ ggplot(data = deso.demographics.rentals, aes(x=avg_dijk_dist, y=total_households
 # Plot rental-majority DeSOs based on dijkstras shortest distance to charge point
 ggplot() + 
   geom_sf(data = gothenburg.subdiv.merged %>% filter(deso %in% deso.demographics.rentals$deso), aes(fill=log(avg_accessibility)), size=0.4) +
-  scale_fill_distiller(palette = "Oranges")
+  scale_fill_distiller(palette = "Oranges", na.value = "brown")
 
 # View data as table 
-gothenburg.subdiv.merged %>% filter(deso %in% deso.demographics.rentals$deso) %>% arrange(avg_accessibility) %>% mutate(avg_accessibility = scale(avg_accessibility)) %>% view()
+gothenburg.subdiv.merged %>% filter(deso %in% deso.demographics.rentals$deso) %>% 
+  arrange(avg_accessibility) %>% view()
 ```
 
 ### PCA analysis
@@ -1242,10 +1336,34 @@ gothenburg.subdiv.merged %>% filter(deso %in% deso.demographics.rentals$deso) %>
 #### All subdivisions
 
 ```{r setup_pca_matrix.all}
+set.seed(1234)
+
 #### PCA and Correlations matrix
-deso.demographics.pca <- deso.demographics %>% select(-deso, -regso, -nodes, -ages)
+deso.demographics.pca <- deso.demographics %>% 
+  rename(Population = "pop",
+         `Higher education` = "higher_education",
+         `Lower education` = "lower_education",
+         `Euclidian distance` = "avg_euc_dist",
+         `Shortest distance` = "avg_dijk_dist",
+          Rental = "rental",
+          Housing = "housing",
+          Condominium = "condominium",
+          Area = "area_m2",
+         `Charge point accessibility` = "avg_accessibility",
+         `Foreign background` = "foreign",
+         `Swedish background` = "swedish",
+         `Cars per household` = "cars_per_household",
+         `Registered cars` = "cars_on_road",
+         `Education missing` = "education_missing",
+         `Households` = "total_households") %>%
+  select(-deso, -regso, -nodes, -ages)
+
+# Scale the values to prevent bias
 deso.demographics.normalized <- scale(deso.demographics.pca)
+
+# Correlation matrix
 corr_matrix <- cor(deso.demographics.normalized)
+
 ```
 
 #### Majority rental subdivisions
@@ -1263,14 +1381,6 @@ deso.demographics.pca <- deso.demographics.owner.occupied %>% select(-deso, -reg
 deso.demographics.normalized <- scale(deso.demographics.pca)
 corr_matrix <- cor(deso.demographics.normalized)
 ```
-#### Correlation Matrix
-
-```{r correlation_plot}
-# Plot correlation matrix
-ggcorrplot(corr_matrix, 
-           title = "Correlation matrix, GOT DeSO demographic data",
-           )
-```
 
 ```{r plot_pca_eigan_values}
 # Perform PCA and run analysis on variables and relations
@@ -1280,7 +1390,27 @@ data.pca$loadings[, 1:2]
 fviz_eig(data.pca, addlabels = TRUE)
 fviz_pca_var(data.pca, col.var = "black")
 fviz_cos2(data.pca, choice = "var", axes = 1:2)
-fviz_pca_var(data.pca, col.var = "cos2",
-             gradient.cols = c("black", "orange", "green"),
-             repel = TRUE)
+fviz_pca_var(data.pca, 
+             col.var = "contrib",
+             title="",
+             gradient.cols = c("#F21A00", "#EBCC2A", "#3B9AB2"),
+             repel = TRUE, 
+             legend.title="Contribution",
+             ggtheme = theme_minimal() + theme( axis.text =  element_text(family = "Cambria"),
+                            axis.title =  element_text(family = "Cambria"),
+                            legend.title = element_text(family = "Cambria"),
+                            legend.text = element_text(family = "Cambria")))
+
+# Clusters
+iris[, -5]
+deso.demographics[, 2:5]
+clusters <- deso.demographics %>% select(avg_accessibility, `Median income tkr`)
+cluster_scaled <- scale(clusters)
+kmeans <- kmeans(cluster_scaled, 3, nstart = 20)
+fviz_cluster(kmeans, clusters)
+
+deso.demographics.clustered <- deso.demographics %>% mutate(cluster = kmeans$cluster)
+
+ggplot(data=deso.demographics.clustered) +
+  geom_point(aes(x=avg_accessibility, y=`Median income tkr`, color=cluster))
 ```
