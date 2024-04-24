@@ -28,7 +28,7 @@ theme_custom <- theme_void()+
     plot.background = element_rect(fill="white",color=NA),
     legend.position = "bottom",
     text = element_text(size = 12, family = "Cambria"),
-    legend.title = element_text(hjust=0.5,color="black"),
+    legend.title = element_text(color="black"),
     legend.text = element_text(color="black")
   )
 
@@ -326,37 +326,39 @@ normalize <- function(value, min, max) {
 ```{r map_deso_averages}
 # Plot average distances by DeSO on cloropleth map
 ggplot() +
-  geom_sf(data=gothenburg.subdiv.merged, alpha=0.9, linewidth=0.6) +
-  geom_sf(data=gothenburg.subdiv.merged, alpha=0.7, aes(fill=log(avg_accessibility)), linewidth=0.8) +
-   labs(title="Average distance to public charging point in Gothenburg",
-       subtitle = "DeSO subdivisions with min 75% rental housing",
-       fill = "Average accessibility",
-       caption = str_wrap("Values are shown in a logorithmic scale for better representation of the variences across the DeSOs. X DeSO areas had a average accessibility of zero, which returned infinate in the logorithmic scale. These Nas are shown as the lowest color on the color scale (blue)", 100)) +
+  geom_sf(data=gothenburg.subdiv.merged, alpha=0.9, linewidth=0.4) +
+  geom_sf(data=gothenburg.subdiv.merged, alpha=0.7, aes(fill=log(avg_dijk_dist)), linewidth=0.4) +
+   labs(#title="Average distance to public charging point in Gothenburg",
+       #subtitle = "DeSO subdivisions with min 75% rental housing",
+       fill = "Average distance") +
   scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous"), 
                        #labels = c(0, 0.25, 0.5, 0.75, 1),
                        na.value="#3B9AB2") +
   theme_custom
 
+gothenburg.subdiv.merged %>% arrange(desc(avg_dijk_dist)) %>% head(10)  %>% as_tibble() %>% count(regso)
+# caption = str_wrap("Values are shown in a logorithmic scale for better representation of the variences across the DeSOs. X DeSO areas had a average accessibility of zero, which returned infinate in the logorithmic scale. These Nas are shown as the lowest color on the color scale (blue)", 100)
 ```
 
 ### Rentals
 ```{r map_rental_desos}
 # Filter out desos by rental majority areas
 got.sub.new.rentals <- gothenburg.subdiv.merged %>% 
-  filter(deso %in% deso.demographics.rentals$deso)
+  filter(deso %in% deso.demographics.rentals$deso)# %>% arrange(desc(avg_dijk_dist))
 # Plot average distances by DeSO on heat map
 ggplot() +
   #geom_sf(data=gothenburg.subdiv) +
-  geom_sf(data=gothenburg.subdiv.merged, alpha=0.9, linewidth=0.6) +
-  geom_sf(data=got.sub.new.rentals, alpha=0.7, aes(fill=(log(avg_accessibility))), linewidth=0.8) +
+  geom_sf(data=gothenburg.subdiv.merged, alpha=0.9, linewidth=0.4) +
+  geom_sf(data=got.sub.new.rentals, alpha=0.7, aes(fill=(log(avg_dijk_dist))), linewidth=0.4) +
   #geom_sf(data = streets$osm_lines, linewidth=0.2, color = 'black') +
-  coord_sf(xlim = c(11.71, 12.16), 
-           ylim = c(57.57, 57.86), expand = TRUE, clip = "on") +
-  labs(title="Average distance to public charging point in Gothenburg",
-       subtitle = "DeSO subdivisions with min 75% rental housing",
-       fill = "Distance") +
-  scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous")) +
+  labs(#title="Average distance to public charging point in Gothenburg",
+       #subtitle = "DeSO subdivisions with min 75% rental housing",
+       fill = "Average distance") +
+  scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous"),
+                       na.value="#3B9AB2") +
   theme_custom
+
+got.sub.new.rentals %>% arrange(desc(avg_dijk_dist)) %>% head(10)  %>% as_tibble() %>% count(regso)
 ```
 
 
@@ -368,31 +370,54 @@ got.sub.new.owner.occupied <- gothenburg.subdiv.merged %>%
 # Plot average distances by DeSO on heat map
 ggplot() +
   #geom_sf(data=gothenburg.subdiv) +
-  geom_sf(data=gothenburg.subdiv.merged, alpha=0.9, linewidth=0.6) +
-  geom_sf(data=got.sub.new.owner.occupied, alpha=0.7, aes(fill=log(avg_accessibility)), linewidth=0.8) +
+  geom_sf(data=gothenburg.subdiv.merged, alpha=0.9, linewidth=0.4) +
+  geom_sf(data=got.sub.new.owner.occupied, alpha=0.7, aes(fill=log(avg_dijk_dist)), linewidth=0.4) +
   #geom_sf(data = streets$osm_lines, linewidth=0.2, color = 'black') +
   coord_sf(xlim = c(11.71, 12.16), 
            ylim = c(57.57, 57.86), expand = TRUE, clip = "on") +
   labs(title="Average distance to public charging point in Gothenburg",
        subtitle = "DeSO subdivisions with min 75% owner-occupied housing",
-       fill = "Distance",
+       fill = "Average distance",
        caption = str_wrap("Owner-occupied included all housing that is with owned outright by the resident, often a freestanding house and land (äganderätt), as well as owned apartments with a building managed by a body corporate (bostadsrätt). In both of these housing types, the residents have some or full control over facilities available to residents.", 100)) +
-  scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous")) +
+  scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous"),
+                       na.value="#3B9AB2") +
   theme_custom
 ```
 
 ## Accessibility
 
-```{r map_rental_desos}
+```{r map_all_desos}
 # Plot average accessibility by DeSO on map
 ggplot() + 
     geom_sf(data=gothenburg.subdiv.merged, alpha=0.9, linewidth=0.4) +
-  geom_sf(data = got.sub.new.rentals, aes(fill=(log(avg_accessibility))), size=0.4, linewidth=0.2) +
-  labs(title="Average accessibility to public charging point in Gothenburg",
-       subtitle = "DeSO subdivisions with min 75% rental housing",
-       fill = "Distance") +
-  scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous")) +
+  geom_sf(data = gothenburg.subdiv.merged, aes(fill=(log10(avg_accessibility))), size=0.4, linewidth=0.2) +
+  labs(#title="Average accessibility to public charging point in Gothenburg",
+       #subtitle = "DeSO subdivisions with min 75% rental housing",
+       fill = "Average accessibility") +
+  scale_fill_gradientn(colors = rev(wes_palette(n=7, name = "Zissou1", type = "continuous")), 
+                       na.value="#F21A00") +
 theme_custom
+
+# Top 10
+gothenburg.subdiv.merged %>% arrange((avg_accessibility)) %>% head(10)  %>% as_tibble() %>% count(regso)
+
+```
+
+```{r map_rental_desos}
+got.sub.new.rentals %>% mutate(avg_accessibility = log(avg_accessibility))
+
+# Plot average accessibility by DeSO on map
+ggplot() + 
+    geom_sf(data = gothenburg.subdiv.merged, alpha=0.9, linewidth=0.4) +
+  geom_sf(data = got.sub.new.rentals, aes(fill=(log10(avg_accessibility))), size=0.4, linewidth=0.2) +
+  labs(#title="Average accessibility to public charging point in Gothenburg",
+       #subtitle = "DeSO subdivisions with min 75% rental housing",
+       fill = "Average accessibility") +
+  scale_fill_gradientn(colors = rev(wes_palette(n=7, name = "Zissou1", type = "continuous")), 
+                       na.value="#F21A00") +
+theme_custom
+
+#got.sub.new.rentals %>% arrange((avg_accessibility)) %>% head(20)  %>% as_tibble() %>% select(regso, avg_accessibility)
 
 ```
  
@@ -401,7 +426,7 @@ theme_custom
 ```{r demographics_ds}
 # Descriptive stats for full demographic data
 deso.demographics %>% 
-  rename("Nodes" = nodes, 
+  rename(#"Nodes" = nodes, 
          #"Average distance to PEV charge point" = avg_dijk_dist,
          #"Potential accessibility" = avg_dd_accessibility,
          "Area (m^2)" = area_m2,
@@ -409,22 +434,20 @@ deso.demographics %>%
          "Total households" = total_households,
          "Swedish background" = swedish,
          "Foreign background" = foreign,
-         "High school" = gymnasium,
-         "Middle school" = middle_school,
-         "Tertiary education (< 3 yrs)" = post_gymnasium_less_than_3,
-         "Tertiary education (3 + yrs)" = post_gymnasium_more_than_3,
-         "Rental apartment" = hyresrätt, 
-         "Owner-occupied apartment" = bostadsrätt, 
-         "Owner-occupied house" = äganderätt,
+         "Higher education" = higher_education,
+         "Lower education" = lower_education,
+         "Rental apartment" = rental, 
+         "Condominium" = condominium, 
+         "Owner-occupied house" = housing,
          "Avg cars per household" = cars_per_household,
-         "Total cars on road" = bilar_i_trafik) %>%
+         "Total registered cars" = cars_on_road) %>%
   select(-deso, -regso, -education_missing, -avg_accessibility, -avg_dijk_dist, -avg_euc_dist) %>% 
   stargazer::stargazer(type="latex", 
                        style="asr",
                        digits=2,
                        omit.summary.stat = c("N", "Sd"), 
-                       title = "DeSO demographic data for Gothenburg, Sweden", 
-                       notes = "DeSO demographic data from 2022.")
+                       title = "DeSO demographic data for Gothenburg", 
+                       notes = "Data from Statistics Sweden. Recorded 2022.")
   # tbl_summary(., include=c(-ages),
   #             statistic = list(all_continuous() ~ "{mean} ({min}, {max})")) %>%
   #             modify_footnote(all_stat_cols() ~ "Mean (Minimun) (Maximum)") %>%
@@ -438,21 +461,18 @@ deso.demographics %>% arrange(desc(total_households)) %>% head() %>%
   rename(#"Nodes" = nodes, 
          #"Average distance to PEV charge point" = avg_dijk_dist,
          #"Potential accessibility" = avg_dd_accessibility,
-         "RegSo" = regso,
          "Area (m^2)" = area_m2,
          "Population" = pop,
          "Total households" = total_households,
-         "Swedish background %" = swedish,
-         "Foreign background %" = foreign,
-         "High school %" = gymnasium,
-         "Middle school %" = middle_school,
-         "Tertiary education (< 3 yrs) %" = post_gymnasium_less_than_3,
-         "Tertiary education (3 + yrs) %" = post_gymnasium_more_than_3,
-         "Rental apartment %" = hyresrätt, 
-         "Owner-occupied apartment %" = bostadsrätt, 
-         "Owner-occupied house %" = äganderätt,
+         "Swedish background" = swedish,
+         "Foreign background" = foreign,
+         "Higher education" = higher_education,
+         "Lower education" = lower_education,
+         "Rental apartment" = rental, 
+         "Condominium" = condominium, 
+         "Owner-occupied house" = housing,
          "Avg cars per household" = cars_per_household,
-         "Total cars on road" = bilar_i_trafik) %>%
+         "Total registered cars" = cars_on_road) %>%
   select(-nodes, -education_missing, -avg_accessibility, -avg_dijk_dist, -avg_euc_dist, -ages) %>% 
   stargazer::stargazer(type="latex", style="asr", digits = 2, digits.extra = 0,  flip = TRUE,  summary=FALSE, 
                        title = "DeSO demographic data for Gothenburg municipality: Sample set", notes = "DeSO demographics from 2022.")
@@ -461,27 +481,26 @@ deso.demographics %>% arrange(desc(total_households)) %>% head() %>%
 ```{r demographics_rentals_ds}
 # Descriptive stats for rental demographic data
 deso.demographics.rentals %>% 
-  rename("Nodes" = nodes, 
-         "Average distance to PEV charge point" = avg_dijk_dist,
+  rename(#"Nodes" = nodes, 
+         #"Average distance to PEV charge point" = avg_dijk_dist,
+         #"Potential accessibility" = avg_dd_accessibility,
          "Area (m^2)" = area_m2,
          "Population" = pop,
          "Total households" = total_households,
          "Swedish background" = swedish,
          "Foreign background" = foreign,
-         "High school" = gymnasium,
-         "Middle school" = middle_school,
-         "Post high school (less than 3 yrs)" = post_gymnasium_less_than_3,
-         "Post high school (3 or more yrs)" = post_gymnasium_more_than_3,
-         "Rental apartment" = hyresrätt, 
-         "Owner-occupied apartment" = bostadsrätt, 
-         "Owner-occupied house" = äganderätt,
-         "Total cars on road" = bilar_i_trafik,
-         "Avg cars per household" = cars_per_household) %>%
+         "Higher education" = higher_education,
+         "Lower education" = lower_education,
+         "Rental apartment" = rental, 
+         "Condominium" = condominium, 
+         "Owner-occupied house" = housing,
+         "Avg cars per household" = cars_per_household,
+         "Total registered cars" = cars_on_road) %>%
   select(-deso, -regso, -education_missing) %>% 
   tbl_summary(., include=c(-ages),
               statistic = list(all_continuous() ~ "{mean} ({min}, {max})")) %>%
               modify_footnote(all_stat_cols() ~ "Mean (Minimun) (Maximum)") %>%
-              modify_caption("**Gothenburg city DeSO demographic data
+              modify_caption("**Gothenburg DeSO demographic data
                              (areas with at least 75% rental apartment housing)** (N = {N})")
 ```
 
@@ -493,9 +512,9 @@ closest_charge_sf  %>%
   filter(distance < 1000) %>%
   head() %>% 
   select(from, to, distance) %>%
-  stargazer::stargazer(type="latex", 
-                       style="asr",
-                       summary=FALSE, 
+  stargazer::stargazer(type = "latex", 
+                       style = "asr",
+                       summary = FALSE, 
                        rownames = FALSE,
                        digits = 0,
                        title = "Euclidean distance between points using K nearest neighbour", 
@@ -520,5 +539,71 @@ joined_deso.nodes %>%
                        title = "Shortest distance between points using Dijkstra's algorithm", 
                        notes = "Note: Shortest distance is represented in meters")
 
+```
+
+## Linear regressions
+
+```{r regression}
+# Linear regressions
+# stargazer(list(model1, model2, model3), type="latex", no.space = TRUE,
+#           notes = "",#style="asr",
+#           #report=("vc*p"),
+#           dep.var.labels=c("Shortest distance (Dijkstra's)"),
+#           covariate.labels=c("Foreign background", "Accessibility", "Total nodes", "Housing area", "Median income (tkr)", "Total households", "Registered cars"))
+
+stargazer(list(model1, model2, model3), type="latex", no.space = TRUE,
+          notes = "",#style="asr",
+          #report=("vc*p"),
+          model.numbers=FALSE,
+          column.labels = c("Model 1", "Model 2", "Model 3"),
+          dep.var.labels=c("Public charge point accessibility"),
+          covariate.labels=c("Foreign background", "Population", "Total nodes", "Housing area", "Median income (tkr)", "Total households", "Registered cars"))
+
+stargazer(list(model1.wt, model2.wt, model3.wt), type="latex", no.space = TRUE,
+          notes = "",#style="asr",
+          #report=("vc*p"),
+          model.numbers=FALSE,
+          column.labels = c("Model 1", "Model 2", "Model 3"),
+          dep.var.labels=c("Public charge point accessibility"),
+          covariate.labels=c("Foreign background", "Population", "Total nodes", "Housing area", "Median income (tkr)", "Total households", "Registered cars"))
+```
+
+```{r regression_accessibility}
+# Logistic regressions
+stargazer(list(model1.rentals, model2.rentals, model3.rentals), type="latex", no.space = TRUE,
+          notes = "",#style="asr",
+          #report=("vc*p"),
+          dep.var.labels=c("Shortest distance (Dijkstra's)"),
+          covariate.labels=c("Foreign background", "Accessibility", "Total nodes", "Housing area", "Median income (tkr)", "Total households", "Registered cars"))
+```
+
+## Correlation Matrix Plot
+
+```{r correlation_plot}
+# Plot correlation matrix
+  ggcorrplot(corr_matrix, 
+           #title = "Correlation matrix, GOT DeSO demographic data",
+           method = "square",
+           lab = TRUE, # Stat values
+           lab_size = 2.4,
+           hc.order = TRUE,
+           #type = "lower",
+           outline.color = "white",
+           ggtheme = ggplot2::theme_minimal,
+           pch = 1, 
+           pch.col = "black", 
+           pch.cex =1,
+           tl.cex = 14) +
+  theme(legend.title = element_text(family = "Cambria"),
+        legend.text = element_text(family = "Cambria"),
+        axis.text.x = element_text(family = "Cambria", 
+                                   margin=margin(0,0,0,0),
+                                   angle = 65,
+                                   size = 10),
+        axis.text.y = element_text(family = "Cambria", 
+                                   margin=margin(0,-2,0,0),
+                                   size=10)) +
+  geom_vline(xintercept=1:ncol(deso.demographics)-0.5, colour="white", size=1) +
+  geom_hline(yintercept=1:ncol(deso.demographics)-0.5, colour="white", size=1)
 ```
 
