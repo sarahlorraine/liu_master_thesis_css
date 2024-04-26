@@ -6,7 +6,7 @@ output: html_document
 editor_options: 
   chunk_output_type: console
 ---
-
+## Libraries and Setup
 ```{r env_setup, include=FALSE}
 ## Base packages
 library(tidyverse)
@@ -19,6 +19,10 @@ library(wesanderson)
 library(knitr)
 library(rlist)
 library(RColorBrewer)
+library(spData)
+library(ggplot2)
+library(cowplot)
+library(rcartocolor)
 # Robustness checks
 library(broom)
 library(car)
@@ -271,7 +275,7 @@ got_streets_net <- got_streets_net %>% st_filter(., gothenburg.subdiv, .predicat
 
 # Use the “spatial morpher” function to create a subdivision of edges
 got_streets_net <- convert(got_streets_net, to_spatial_subdivision)
-?edge_is_multiple
+
 # Further cleaning
 got_streets_net <- got_streets_net %>% 
   activate("edges") %>% 
@@ -783,10 +787,8 @@ ggplot() +
 all_nodes <- got_streets_net %>% activate(nodes) %>% as_tibble()
 
 # Set the empty df for storing each distance result
-#distances_per_point <- data_frame()
-#distances_per_point.NoSubdivision <- data_frame()
 distances_per_point <- data_frame()
-#charge_points.p2p.geo.nodes %>% filter(charge_id == 167)
+
 # Start timer
 start.time <- Sys.time()
 for(i in 1:nrow(all_nodes)) {
@@ -1012,7 +1014,7 @@ avg_dist_deso <- joined_deso.nodes %>% as_tibble() %>%
   summarise(nodes = n(),
             # remove NA values from the mean to avoid an average NA result
             avg_dijk_dist = mean(dijkstras_distance, na.rm=TRUE),
-            avg_euc_dist = mean(knn_distance, na.rm=TRUE),
+            #avg_euc_dist = mean(knn_distance, na.rm=TRUE),
             avg_accessibility = mean(potential_accessibility, na.rm=TRUE)) %>% 
   arrange(avg_accessibility)
 
@@ -1086,8 +1088,8 @@ gothenburg.subdiv.merged %>% as_tibble() %>%
        y="") +
   theme_light()
 
-ggplot(gothenburg.subdiv.merged, aes(x=as.factor(regso), y=(sqrt(avg_accessibility)), size=nodes)) +
-  geom_point(alpha=0.7)
+ggplot(gothenburg.subdiv.merged, aes(x=foreign, y=(log10(avg_accessibility)))) +
+  geom_bar(alpha=0.7)
 
 gothenburg.subdiv.merged %>% arrange(desc(avg_accessibility))
 ```
@@ -1180,7 +1182,7 @@ deso.demographics <- deso_aream2 %>%
   merge(., deso.cars, by="deso") %>%
   # Calculate average cars per household
   mutate(cars_per_household = cars_on_road / total_households) %>%
-  select(deso, regso, nodes, avg_accessibility, avg_dijk_dist, avg_euc_dist,  everything()) %>%
+  select(deso, regso, nodes, avg_accessibility, avg_dijk_dist,  everything()) %>%
   arrange(desc(avg_accessibility))
 
 #view(deso.demographics.rentals)
@@ -1206,22 +1208,35 @@ filter(housing >= 0.75 | condominium >= 0.75)
 ### Linear regressions
 
 ```{r lm_models_all, eval=TRUE, include=TRUE}
-# (avg_dijk_dist / 1000) changes the dependent variable from meters to kilometers
+# Gen the min value of accessibility after removing results with zero
+min_rm_zero <- deso.demographics %>% filter(avg_accessibility > 0) %>% select(avg_accessibility) %>% min()
+
+# Cap the outliers that fall outside the 95 
+accessibility_capped <- deso.demographics$avg_accessibility
+qnt <- quantile(accessibility_capped, probs=c(.25, .75), na.rm = T)
+caps <- quantile(accessibility_capped, probs=c(.05, .95), na.rm = T)
+H <- 1.5 * IQR(accessibility_capped, na.rm = T)
+accessibility_capped[accessibility_capped < (qnt[1] - H)] <- caps[1]
+accessibility_capped[x > (qnt[2] + H)] <- caps[2]
+
 deso.demographics_na.rm <- deso.demographics %>% 
-  # Remove the two NAs of Billdal
-  filter(avg_accessibility > 0) %>% 
-  rownames_to_column(., "i") %>% 
+  # Set the values of Billdal to the min value excluding zero. This is to supportlog10 in the models
+  mutate(avg_accessibility = accessibility_capped) %>%
+  mutate(avg_accessibility = ifelse(avg_accessibility == 0, min_rm_zero, avg_accessibility)) %>% 
+  rownames_to_column(., "i") #%>% 
   # Remove outlier # 43
-  filter(i != 43)
+  #filter(i != 43)
 
 ## For ease of readability it would be good to scale the average distance
-model1 <- lm(log10(avg_accessibility)~foreign+pop+nodes+housing, 
+model1 <- lm(log10(avg_accessibility)~foreign+cars_per_household,
              data = deso.demographics_na.rm)
 summary(model1)
-model2 <- lm(log10(avg_accessibility)~foreign+pop+nodes+housing+`Median income tkr`, 
+
+model2 <- lm(log10(avg_accessibility)~foreign+cars_per_household+`Median income tkr`,
              data = deso.demographics_na.rm)
 summary(model2)
-model3 <- lm(log10(avg_accessibility)~foreign+pop+nodes+housing+cars_on_road, 
+#log10(avg_accessibility)~foreign+avg_dijk_dist+pop+nodes+housing+cars_on_road
+model3 <- lm(log10(avg_accessibility)~foreign+cars_per_household+`Median income tkr`+nodes, 
              data = deso.demographics_na.rm)
 summary(model3)
 ```
@@ -1229,34 +1244,33 @@ summary(model3)
 ```{r linear_regression.weighted}
 wt.1 <- 1 / lm(abs(model1$residuals) ~ model1$fitted.values)$fitted.values^2
 
-model1.wt <- lm(log10(avg_accessibility)~foreign+pop+nodes+housing,  
+model1.wt <- lm(log10(avg_accessibility)~foreign+cars_per_household,  
              data = deso.demographics_na.rm, weights=wt.1)
 summary(model1.wt)
 
 wt.2 <- 1 / lm(abs(model2$residuals) ~ model2$fitted.values)$fitted.values^2
 
-model2.wt <- lm(log10(avg_accessibility) ~foreign+pop+nodes+housing+`Median income tkr`,  
+model2.wt <- lm(log10(avg_accessibility)~foreign+`Median income tkr`+cars_per_household,  
              data = deso.demographics_na.rm, weights=wt.2)
 summary(model2.wt)
 
 wt.3 <- 1 / lm(abs(model3$residuals) ~ model3$fitted.values)$fitted.values^2
 
-model3.wt <- lm(log10(avg_accessibility)~foreign+pop+nodes+housing+cars_on_road,  
+model3.wt <- lm(log10(avg_accessibility)~foreign+`Median income tkr`+cars_per_household+nodes,  
              data = deso.demographics_na.rm, weights=wt.3)
 summary(model3.wt, diagnostics=TRUE)
-
-colnames(deso.demographics_na.rm)
 ```
 
 ```{r lm.test}
 # Min/Max log accessibility
 deso.demographics_na.rm %>% mutate(avg_accessibility = log10(avg_accessibility)) %>% select(avg_accessibility) %>% max()
+deso.demographics_na.rm %>% mutate(avg_accessibility = log10(avg_accessibility)) %>% select(avg_accessibility) %>% min()
 
 # Confidence intervals
 confint(model1.wt)
 
 deso.demographics_na.rm %>% arrange(desc(avg_accessibility)) %>% select(avg_accessibility) %>% summarize(mean = mean(avg_accessibility))
-plot(model1.wt)
+plot(model1)
 
 # Homoscedasticity test
 ggplot(data = deso.demographics_na.rm, aes(x = fitted(model1), y = resid(model1))) +
@@ -1273,10 +1287,20 @@ ncvTest(model1)
 
 # Endogeneity, Wald test
 # A Wald test can be used to test if one or more parameters in a model are equal to certain values.
-model3_wt.lv <- ivreg(log10(avg_accessibility)~foreign+total_households+nodes+housing+cars_on_road,  
-             data = deso.demographics_na.rm, weights=wt.3)
+model1_wt.lv <- ivreg(log10(avg_accessibility)~foreign+cars_per_household+pop,  
+             data = deso.demographics_na.rm, weights=wt.1)
 
-summary(model3_wt.lv)
+summary(model1_wt.lv)
+
+#Outliers: car
+car::outlierTest(model1)
+#Outliers: Cooks distance
+cooksd <- cooks.distance(model1)
+influential <- as.numeric(names(cooksd)[(cooksd > 4*mean(cooksd, na.rm=T))])  # influential row numbers
+tail(deso.demographics_na.rm[influential, ])
+plot(cooksd, pch="*", cex=2, main="Influential Obs by Cooks distance")  # plot cook's distance
+abline(h = 4*mean(cooksd, na.rm=T), col="red")  # add cutoff line
+text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4*mean(cooksd, na.rm=T),names(cooksd),""), col="red")  # add labels
 
 # Multicollinearity : VIF values
 # https://www.statology.org/multicollinearity-in-r/
@@ -1291,11 +1315,11 @@ vif(model2.wt)
 vif(model3.wt)
 
 ## Normality of residuals
-ols_plot_resid_qq(model1)
-ols_plot_resid_fit(model1)
-ols_plot_resid_hist(model1)
-ols_test_correlation(model1)
-plot(model1, 2)
+ols_plot_resid_qq(model3.wt)
+ols_plot_resid_fit(model3.wt)
+ols_plot_resid_hist(model3.wt)
+ols_test_correlation(model3.wt)
+plot(model3.wt, 5)
 ```
 
 
@@ -1343,7 +1367,7 @@ deso.demographics.pca <- deso.demographics %>%
   rename(Population = "pop",
          `Higher education` = "higher_education",
          `Lower education` = "lower_education",
-         `Euclidian distance` = "avg_euc_dist",
+         #`Euclidian distance` = "avg_euc_dist",
          `Shortest distance` = "avg_dijk_dist",
           Rental = "rental",
           Housing = "housing",
@@ -1356,7 +1380,7 @@ deso.demographics.pca <- deso.demographics %>%
          `Registered cars` = "cars_on_road",
          `Education missing` = "education_missing",
          `Households` = "total_households") %>%
-  select(-deso, -regso, -nodes, -ages)
+  select(-deso, -regso, -nodes)
 
 # Scale the values to prevent bias
 deso.demographics.normalized <- scale(deso.demographics.pca)

@@ -107,6 +107,42 @@ ggplot() +
      size = "Capacity") + theme_custom
 ```
 
+```{r map_road_network}
+map_data.sf <- got_streets_net %>% activate(nodes) %>% as_tibble() %>% st_as_sf()
+got.central <- 
+## Plot map with zoom
+inset_map <- ggplot() + 
+  geom_sf(data = us_states_2163, fill = "white") + 
+  geom_sf(data = north_carolina_2163_bb, fill = NA, color = "yellow", size = 1.2) +
+  theme_void()
+
+# main panel
+main_map <- ggplot() + 
+  geom_sf(data = got_streets_net %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), col="#90C59B", size=0.2) +
+  labs(#title="Public PEV charging points in Gothenburg municipality",
+     subtitle = "",
+     color = "",
+     size = "Capacity") + theme_custom
+# map
+gg_inset_map1 <- cowplot::ggdraw() +
+  coord_equal(xlim = c(0, 20), ylim = c(0, 20), expand = FALSE) +
+  annotation_custom(ggplotGrob(inset), xmin = 0, xmax = 10, ymin = 10, ymax = 20) +
+  annotation_custom(ggplotGrob(main), xmin = 0, xmax = 20, ymin = 0, ymax = 10) +
+  geom_segment(aes(x = 8.9, xend = 19, y = 14.4, yend = 9.2), color = "yellow", size = 1.2) +
+  geom_segment(aes(x = 7.5, xend = 1, y = 14.4, yend = 9.2), color = "yellow", size = 1.2)
+ggplot() +
+  geom_sf(data = got_streets_net %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), col="#90C59B", size=0.2) + 
+  #geom_sf(data = gothenburg.subdiv, alpha=0.6, linewidth=0.6, colour="#8778D7", fill="#90C59B") +
+  #geom_sf(data = got_streets_net %>% activate(edges) %>% as_tibble() %>% st_as_sf(), linewidth=0.2, color = 'grey') +
+  #geom_sf(data = main_streets$osm_lines, alpha=0.5, color = "black", linewidth=0.6) + 
+  #geom_sf(data = joined_charge_points, aes(size=(capacity), color=capacity)) +
+  scale_color_distiller(palette = "Oranges", breaks = c(1, 25, 50, 75, 100), guide="none") +
+  scale_size(breaks = c(1, 25, 50, 75, 100)) +
+  labs(#title="Public PEV charging points in Gothenburg municipality",
+     subtitle = "",
+     color = "",
+     size = "Capacity") + theme_custom
+```
 
 ```{r interactive_map}
 got_streets_net.unfiltered %>% activate(edges) %>% filter(from == 7790 | to==7790) %>% filter(highway== "tertiary") %>% as_tibble() %>% st_as_sf() %>% plot()
@@ -557,7 +593,7 @@ stargazer(list(model1, model2, model3), type="latex", no.space = TRUE,
           model.numbers=FALSE,
           column.labels = c("Model 1", "Model 2", "Model 3"),
           dep.var.labels=c("Public charge point accessibility"),
-          covariate.labels=c("Foreign background", "Population", "Total nodes", "Housing area", "Median income (tkr)", "Total households", "Registered cars"))
+          covariate.labels=c("Foreign background", "Median income (tkr)", "Cars per household", "Network nodes"))
 
 stargazer(list(model1.wt, model2.wt, model3.wt), type="latex", no.space = TRUE,
           notes = "",#style="asr",
@@ -565,16 +601,7 @@ stargazer(list(model1.wt, model2.wt, model3.wt), type="latex", no.space = TRUE,
           model.numbers=FALSE,
           column.labels = c("Model 1", "Model 2", "Model 3"),
           dep.var.labels=c("Public charge point accessibility"),
-          covariate.labels=c("Foreign background", "Population", "Total nodes", "Housing area", "Median income (tkr)", "Total households", "Registered cars"))
-```
-
-```{r regression_accessibility}
-# Logistic regressions
-stargazer(list(model1.rentals, model2.rentals, model3.rentals), type="latex", no.space = TRUE,
-          notes = "",#style="asr",
-          #report=("vc*p"),
-          dep.var.labels=c("Shortest distance (Dijkstra's)"),
-          covariate.labels=c("Foreign background", "Accessibility", "Total nodes", "Housing area", "Median income (tkr)", "Total households", "Registered cars"))
+          covariate.labels=c("Foreign background", "Median income (tkr)", "Cars per household", "Network nodes"))
 ```
 
 ## Correlation Matrix Plot
@@ -587,7 +614,7 @@ stargazer(list(model1.rentals, model2.rentals, model3.rentals), type="latex", no
            lab = TRUE, # Stat values
            lab_size = 2.4,
            hc.order = TRUE,
-           #type = "lower",
+           type = "upper",
            outline.color = "white",
            ggtheme = ggplot2::theme_minimal,
            pch = 1, 
