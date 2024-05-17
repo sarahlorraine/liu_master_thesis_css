@@ -22,12 +22,22 @@ pal3 <- wes_palette("BottleRocket2", 21, type = "continuous")
 # Set color background
 bck <- "#001219"
 # Set theme 
-theme_custom <- theme_void()+
+theme_custom_map <- theme_void() +
   theme(
     plot.margin = margin(1,1,10,1,"pt"),
     plot.background = element_rect(fill="white",color=NA),
     legend.position = "bottom",
     text = element_text(size = 12, family = "Cambria"),
+    legend.title = element_text(color="black"),
+    legend.text = element_text(color="black")
+  )
+
+theme_custom <- theme_classic() +
+  theme(
+    plot.margin = margin(1,1,10,1,"pt"),
+    plot.background = element_rect(fill="white",color=NA),
+    legend.position = "bottom",
+    text = element_text(size = 16, family = "Cambria"),
     legend.title = element_text(color="black"),
     legend.text = element_text(color="black")
   )
@@ -43,20 +53,45 @@ joined_charge_points %>%
          Y = (joined_charge_points %>% st_coordinates() %>% as_tibble())$Y) %>%
   mutate(fee = factor(ifelse(is.na(`parking:fee`), "no", `parking:fee`))) %>%
   as.data.frame() %>%
-  rename("Latitude" = X,
-         "Longitude" = Y,
-         "Capacity" = capacity,
-         "Parking fee" = fee,
+  #rename("Latitude" = X,
+        # "Longitude" = Y,
+         #"Capacity" = capacity,
+         #"Parking fee" = fee,
          # "Electic bike charging" = vehicleTypes.bike,
          # "Min power range" = powerRange.min,
          # "Max power range" = powerRange.max,
          # "Fast charger (50kwh+)" = isFastCharge
-         ) %>% 
-  select("Latitude", "Longitude", "Capacity", "Parking fee", -geometry) %>%
-  stargazer::stargazer(type="latex", style="asr", 
-                       summary = TRUE,
-                       title = "PEV public charging points across Gothenburg city", 
-                       notes = "Charging point data sourced from Place to Plug and Open Street Maps")
+         #) %>% 
+  ggplot() + 
+  geom_rect(aes(xmin=1, 
+                xmax=43,
+                ymin=0,
+                ymax=max(capacity)+1), 
+            fill="#808080",#wes_palette(n=1,"GrandBudapest1"), 
+            alpha=0.01) +
+  geom_rect(aes(xmin=46, 
+                xmax=max(powerRange.max)+5,
+                ymin=0,
+                ymax=max(capacity)+1), 
+            fill="gray",#wes_palette(n=1,"Zissou1"), 
+            alpha=0.01) +
+  geom_text(x=23,
+            y = 52.5,
+            label=paste("n =", nrow(joined_charge_points %>% filter(powerRange.max <= 43)))) +
+  geom_text(x=200,
+            y = 52.5,
+            label=paste("n =", nrow(joined_charge_points %>% filter(powerRange.max > 43)))) +
+  #geom_vline(xintercept=3, color="dark green") +
+  geom_point(aes(x=powerRange.max, y=capacity), size=2) + 
+  labs(y="Capacity",
+       x= "Maximum power KW",
+       color="Parking fee") +
+  scale_y_continuous(breaks = seq(0, max(joined_charge_points$capacity), 5)) +
+  scale_x_continuous(breaks = seq(0, max(joined_charge_points$powerRange.max), 25)) +
+  scale_color_manual(wes_palette(n=1, name = "Zissou1")) +
+  theme_custom
+  #select("Latitude", "Longitude", "Capacity", "Parking fee", -geometry) %>%
+  #stargazer::stargazer(type="latex", style="asr", summary = TRUE,title = "PEV public charging points across Gothenburg city", notes = "Charging point data sourced from Place to Plug and Open Street Maps")
 
 ```
 
@@ -89,13 +124,32 @@ stargazer::stargazer(type="latex",
 ```
 # Map plots: Network
 ## Road network
+
+```{r map_roads}
+## Plot road network
+
+ggplot() +
+  #geom_sf(data = got_streets_net %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), col = nodes$component, size=0.5) + 
+  geom_sf(data = gothenburg.subdiv.merged, alpha=0.6, linewidth=1, fill="darkgrey", color="darkgrey") +
+  geom_sf(data = gothenburg.subdiv.merged, alpha=1, linewidth=0.6, fill="#eeeeee", color="#eeeeee") +
+  geom_sf(data = got_streets_net %>% activate(edges) %>% as_tibble() %>% st_as_sf(), linewidth=0.2, color = '#8778D7') +
+  geom_sf(data = st_filter(main_streets$osm_lines, gothenburg.subdiv.merged), alpha=0.5, color = "#1e00be", linewidth=0.6) + 
+  #geom_sf(data = joined_charge_points, aes(size=(capacity), color=capacity)) +
+  scale_color_distiller(palette = "Oranges", breaks = c(1, 25, 50, 75, 100), guide="none") +
+  scale_size(breaks = c(1, 25, 50, 75, 100)) +
+  labs(#title="Public PEV charging points in Gothenburg municipality",
+     subtitle = "",
+     color = "",
+     size = "Capacity") + theme_custom_map
+```
+### With Charge Points
 ```{r map_charge_points}
 ## Plot map with charge points
 
 nodes <- got_streets_net %>% activate(nodes) %>% as_tibble() %>% st_as_sf()
 ggplot() +
   #geom_sf(data = got_streets_net %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), col = nodes$component, size=0.5) + 
-  #geom_sf(data = gothenburg.subdiv, alpha=0.6, linewidth=0.6, colour="#8778D7", fill="#90C59B") +
+  #geom_sf(data = gothenburg.subdiv.merged, alpha=0.6, linewidth=0.6, colour="#8778D7", fill="#90C59B") +
   geom_sf(data = got_streets_net %>% activate(edges) %>% as_tibble() %>% st_as_sf(), linewidth=0.2, color = 'grey') +
   #geom_sf(data = main_streets$osm_lines, alpha=0.5, color = "#1e00be", linewidth=0.6) + 
   geom_sf(data = joined_charge_points, aes(size=(capacity), color=capacity)) +
@@ -104,7 +158,7 @@ ggplot() +
   labs(#title="Public PEV charging points in Gothenburg municipality",
      subtitle = "",
      color = "",
-     size = "Capacity") + theme_custom
+     size = "Capacity") + theme_custom_map
 ```
 
 ```{r map_road_network}
@@ -141,7 +195,7 @@ ggplot() +
   labs(#title="Public PEV charging points in Gothenburg municipality",
      subtitle = "",
      color = "",
-     size = "Capacity") + theme_custom
+     size = "Capacity") + theme_custom_map
 ```
 
 ```{r interactive_map}
@@ -158,37 +212,77 @@ tm_tiles("CartoDB.Positron") +
 
 ## DeSO areas
 ```{r map_deso_area}
+deso_map_data <- gothenburg.subdiv.merged %>% merge(., deso.demographics, by="deso")
 ## Plot map with deso areas
 ggplot() +
-  #geom_sf(data = water$osm_multipolygons, fill = 'light blue') + 
-  geom_sf(data=gothenburg.subdiv, alpha=0.6, linewidth=0.6, colour="#8778D7", fill="#90C59B") +
-  geom_sf_text(data = gothenburg.subdiv, label=gothenburg.subdiv$deso, 
-               size=(scale(center=FALSE, as.integer(gothenburg.subdiv$area)) / 2), color="#1e00be") +
-  # labs(title="Map of demographically statistical areas (DeSOs)",
-  #    subtitle = "Gothenburg Municipality",
-  #    fill = "") +
-  theme_custom
+  geom_sf(data=deso_map_data, alpha=1, linewidth=0.3, colour="#505050", aes(fill=deso_map_data$pop)) +
+  #geom_sf_text(data = gothenburg.subdiv, label=gothenburg.subdiv$deso, 
+  #             size=(scale(center=FALSE, as.integer(gothenburg.subdiv$area)) / 2), color="#1e00be") +
+  labs(#title="Map of demographically statistical areas (DeSOs)",
+     #subtitle = "Gothenburg Municipality",
+     fill = "Population") +
+  scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous")) +
+  theme_custom_map# + theme(legend.position = "none")
+```
+
+## Exposed areas
+```{r map_deso_area}
+## Plot map with deso areas and exposed areas
+ggplot() +
+  geom_sf(data=gothenburg.subdiv.merged, alpha=0.6, linewidth=0.6, colour="dark gray", fill="#eeeeee") +
+  geom_sf_label(data = utsatta_områden, label = utsatta_områden$neighbourhood, nudge_y = 0.009, alpha=1) +
+  geom_sf(data = utsatta_områden, size=3.5,  colour="#8778D7") +
+  geom_sf(data = utsatta_områden, size=2.5, aes(color=factor(utsatta_områden$risk_level))) +
+  #geom_sf_text(data = gothenburg.subdiv, label=gothenburg.subdiv$deso, 
+  #             size=(scale(center=FALSE, as.integer(gothenburg.subdiv$area)) / 2), color="#1e00be") +
+  labs(#title="Map of demographically statistical areas (DeSOs)",
+     #subtitle = "Gothenburg Municipality",
+     color = "Risk category") +
+  scale_color_manual(values=c("#F2AD00","#F98400","#FF0000")) +
+  theme_custom_map# + theme(legend.position = "none")
 ```
 
 ## Nodes
 
 ```{r map_nodes}
+deso_zoom <- gothenburg.subdiv %>% filter(deso == "1480C2240") %>% st_bbox()
+regso.list
+from <- c(deso_zoom$xmin, deso_zoom$xmax, deso_zoom$ymin, deso_zoom$ymax)
+# Names xmin, xmax, ymin, ymax are optional:
+to <- c(xmin = 12.1, xmax = 12.2, ymin = 57.70, ymax = 57.84)
+
+## Plot map with node points and their color coded distance values
+ggplot() +
+  geom_sf(data = got_streets_net %>% activate("edges") %>% as_tibble() %>% st_as_sf(), linewidth=0.2, color = '#808080') +
+  #geom_sf(data = main_streets$osm_lines, alpha=0.8, color = "#1e00be", linewidth=0.6) + 
+  #geom_sf(data=gothenburg.subdiv, alpha=0.2, linewidth=0.6, colour="transparent", fill="#90C59B")+
+  geom_sf(data = joined_deso.nodes, size=0.4, aes(color=travel_time)) +
+  labs(#title="Nodes in Gothenburg City road network graph",
+     #subtitle = "By distance to charge point",
+     color = "Travel time (minutes)") +
+  scale_color_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous")) +
+  theme_custom_map +
+  geom_magnify(from = from, to = to)
+
+```
+
+```{r histogram_nodes}
+
 ## Plot map with node points and their color coded distance values
 ggplot() +
   #geom_sf(data = streets$osm_lines, linewidth=0.2, color = '#1e00be') +
   #geom_sf(data = main_streets$osm_lines, alpha=0.8, color = "#1e00be", linewidth=0.6) + 
   #geom_sf(data = got.boundary$osm_multipolygons, linewidth=0.5, colour="grey") +
-  geom_sf(data=gothenburg.subdiv, alpha=0.2, linewidth=0.6, colour="transparent", fill="#90C59B")+
-  geom_sf(data = joined_deso.nodes, size=0.4, aes(color=distance_level)) +
-  coord_sf(xlim = c(11.71, 12.16), 
-           ylim = c(57.58, 57.86), 
-           expand = TRUE, clip = "on") +
-  labs(title="Nodes in Gothenburg City road network graph",
-     subtitle = "By distance to charge point",
-     color = "") +
-  scale_color_manual(values= wes_palette(7, name = "Zissou1", type = "continuous")) +
-  theme_custom + 
-  theme(legend.key.width = unit(1, 'cm'))
+  #geom_sf(data=gothenburg.subdiv, alpha=0.2, linewidth=0.6, colour="transparent", fill="#90C59B")+
+  geom_histogram(data = joined_deso.nodes, 
+                 fill=wes_palette(n=1, name = "Zissou1"), 
+                 aes(x=travel_time), binwidth = 0.09) +
+  labs(#title="Nodes in Gothenburg City road network graph",
+     #subtitle = "By distance to charge point",
+     x = "Travel time (minutes)",
+     y="") +
+  scale_x_continuous(breaks=c(seq(0, 30, 5))) +
+  theme_custom
 ```
 
 ## Foreign background
@@ -199,7 +293,6 @@ got.sub.demo <- gothenburg.subdiv.merged %>% merge(., foreign, by="deso")
 # Plot percentage foreign background by DeSO on heat map
 ggplot() +
   #geom_sf(data=gothenburg.subdiv) +
-  geom_sf(data = got.boundary$osm_multipolygons, linewidth=0.5, colour="grey") +
   geom_sf(data=got.sub.demo, alpha=0.7, aes(fill=round(foreign, 2)), linewidth=0.8) +
   #geom_sf(data = streets$osm_lines, linewidth=0.2, color = 'black') +
   coord_sf(xlim = c(11.71, 12.16), 
@@ -208,7 +301,7 @@ ggplot() +
        subtitle = "By DeSO subdivision",
        fill = "") +
   scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous")) +
-  theme_custom
+  theme_custom_map
 ```
 
 # Example network plots
@@ -246,7 +339,7 @@ net.nodes <- net %>% activate(nodes) %>% as_tibble()
 
 ggplot() +
   geom_sf(data = st_geometry(net, "edges"), col = edge_colors(net), lwd = 1.5) +
-  geom_sf(data = st_geometry(net, "nodes"), pch = 20, size = 9, col="black") +
+  geom_sf(data = st_geometry(net, "nodes"), pch = 20, size = 12, col="black") +
   geom_sf_text(data = net %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), 
                label = net.nodes$nodeId, col="white") +
   theme_void()
@@ -279,7 +372,7 @@ path.nodes <- test_path_graph %>% activate(nodes) %>% as_tibble()
 ggplot() +
   geom_sf(data = st_geometry(net, "edges"), col = edge_colors(net), lwd = 1.5) +
   geom_sf(data = test_path_graph %>% activate(edges) %>% as_tibble( ) %>% st_as_sf(), lwd=3, col="#bb3e03") +
-  geom_sf(data = st_geometry(net, "nodes"), pch = 20, size = 9, col="black") +
+  geom_sf(data = st_geometry(net, "nodes"), pch = 20, size = 12, col="black") +
   geom_sf_text(data = net %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), 
                 label = net.nodes$nodeId, col="white") +
   geom_sf_text(data = test_path_graph %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), 
@@ -303,7 +396,7 @@ net.subdivision.nodes <- net.subdivision %>% activate(nodes) %>% as_tibble()
 
 ggplot() +
   geom_sf(data = st_geometry(net.subdivision, "edges"), col = edge_colors(net.subdivision), lwd = 1.5) +
-  geom_sf(data = st_geometry(net.subdivision, "nodes"), pch = 20, size = 9, col="black") +
+  geom_sf(data = st_geometry(net.subdivision, "nodes"), pch = 20, size = 12, col="black") +
   geom_sf_text(data = net.subdivision %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), 
                label = net.subdivision.nodes$nodeId, col="white") +
   theme_void()
@@ -336,7 +429,7 @@ path.nodes <- test_path_graph %>% activate(nodes) %>% as_tibble()
 ggplot() +
   geom_sf(data = st_geometry(net.subdivision, "edges"), col = edge_colors(net.subdivision), lwd = 1.5) +
   geom_sf(data = test_path_graph %>% activate(edges) %>% as_tibble( ) %>% st_as_sf(), lwd=3, col="#bb3e03") +
-  geom_sf(data = st_geometry(net.subdivision, "nodes"), pch = 20, size = 9, col="black") +
+  geom_sf(data = st_geometry(net.subdivision, "nodes"), pch = 20, size = 12, col="black") +
   geom_sf_text(data = net.subdivision %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), 
                label = net.subdivision.nodes$nodeId, col="white") +
   geom_sf_text(data = test_path_graph %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), 
@@ -351,26 +444,24 @@ ggplot() +
 
 ### All DeSO
 
-```{r}
-normalize <- function(value, min, max) {
-	normalized <- (value - min) / (max - min);
-	return(normalized)
-}
-```
 
- 
 ```{r map_deso_averages}
+top10.travel <- gothenburg.subdiv.merged %>% arrange(desc(avg_dijk_dist)) %>% head(10) %>% st_centroid()
 # Plot average distances by DeSO on cloropleth map
 ggplot() +
   geom_sf(data=gothenburg.subdiv.merged, alpha=0.9, linewidth=0.4) +
-  geom_sf(data=gothenburg.subdiv.merged, alpha=0.7, aes(fill=log(avg_dijk_dist)), linewidth=0.4) +
+  geom_sf(data=gothenburg.subdiv.merged, aes(fill=(avg_travel_time)), linewidth=0.4) +
+  #geom_sf_label(data = central_station, label = central_station$landmark, nudge_y = 0.012, alpha=0.8) +
+  geom_sf(data = top10.travel, size=3) +
+  #geom_sf_label(data = top10, label=top10$regso)+
+  #geom_sf(data =central_station, size=2.8) +
    labs(#title="Average distance to public charging point in Gothenburg",
        #subtitle = "DeSO subdivisions with min 75% rental housing",
-       fill = "Average distance") +
+       fill = "Travel time (minutes)") +
   scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous"), 
                        #labels = c(0, 0.25, 0.5, 0.75, 1),
                        na.value="#3B9AB2") +
-  theme_custom
+  theme_custom_map
 
 gothenburg.subdiv.merged %>% arrange(desc(avg_dijk_dist)) %>% head(10)  %>% as_tibble() %>% count(regso)
 # caption = str_wrap("Values are shown in a logorithmic scale for better representation of the variences across the DeSOs. X DeSO areas had a average accessibility of zero, which returned infinate in the logorithmic scale. These Nas are shown as the lowest color on the color scale (blue)", 100)
@@ -381,20 +472,24 @@ gothenburg.subdiv.merged %>% arrange(desc(avg_dijk_dist)) %>% head(10)  %>% as_t
 # Filter out desos by rental majority areas
 got.sub.new.rentals <- gothenburg.subdiv.merged %>% 
   filter(deso %in% deso.demographics.rentals$deso)# %>% arrange(desc(avg_dijk_dist))
+
+top10.rental <- got.sub.new.rentals %>% arrange(desc(avg_travel_time)) %>% head(10)  %>% as_tibble() %>% count(regso)
+
 # Plot average distances by DeSO on heat map
 ggplot() +
   #geom_sf(data=gothenburg.subdiv) +
   geom_sf(data=gothenburg.subdiv.merged, alpha=0.9, linewidth=0.4) +
-  geom_sf(data=got.sub.new.rentals, alpha=0.7, aes(fill=(log(avg_dijk_dist))), linewidth=0.4) +
-  #geom_sf(data = streets$osm_lines, linewidth=0.2, color = 'black') +
+  geom_sf(data=got.sub.new.rentals, alpha=1, aes(fill=(avg_travel_time)), linewidth=0.4) +
+  geom_sf_label(data = central_station, label = central_station$landmark, nudge_y = 0.012, alpha=0.8) +
+  geom_sf(data = central_station, size=2.8) +
   labs(#title="Average distance to public charging point in Gothenburg",
        #subtitle = "DeSO subdivisions with min 75% rental housing",
-       fill = "Average distance") +
+       fill = "Travel time (minutes)") +
   scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous"),
                        na.value="#3B9AB2") +
-  theme_custom
+  theme_custom_map
 
-got.sub.new.rentals %>% arrange(desc(avg_dijk_dist)) %>% head(10)  %>% as_tibble() %>% count(regso)
+got.sub.new.rentals %>% arrange(desc(avg_travel_time)) %>% head(10)  %>% as_tibble() %>% count(regso)
 ```
 
 
@@ -417,44 +512,76 @@ ggplot() +
        caption = str_wrap("Owner-occupied included all housing that is with owned outright by the resident, often a freestanding house and land (äganderätt), as well as owned apartments with a building managed by a body corporate (bostadsrätt). In both of these housing types, the residents have some or full control over facilities available to residents.", 100)) +
   scale_fill_gradientn(colors = wes_palette(n=7, name = "Zissou1", type = "continuous"),
                        na.value="#3B9AB2") +
-  theme_custom
+  theme_custom_map
 ```
 
 ## Accessibility
 
 ```{r map_all_desos}
+top10.accessibility <- gothenburg.subdiv.merged %>% arrange((avg_culm_accessibility)) %>% head(10) %>% st_centroid()
 # Plot average accessibility by DeSO on map
 ggplot() + 
     geom_sf(data=gothenburg.subdiv.merged, alpha=0.9, linewidth=0.4) +
-  geom_sf(data = gothenburg.subdiv.merged, aes(fill=(log10(avg_accessibility))), size=0.4, linewidth=0.2) +
+  geom_sf(data = gothenburg.subdiv.merged, aes(fill=sqrt(avg_culm_accessibility)), size=0.4, linewidth=0.2) +
+  # geom_sf_label(data = utsatta_områden, label = utsatta_områden$neighbourhood, nudge_y = 0.007, alpha=0.8) +
+  # geom_sf(data = utsatta_områden, aes(size=(utsatta_områden$risk_level))) +
+  geom_sf(data = top10.accessibility, size=3) +
+  #geom_sf_label(data = central_station, label = central_station$landmark, nudge_y = 0.012, alpha=0.8) +
+  #geom_sf(data = central_station, size=2.8) +
   labs(#title="Average accessibility to public charging point in Gothenburg",
        #subtitle = "DeSO subdivisions with min 75% rental housing",
-       fill = "Average accessibility") +
+       fill = "Accessibility level") +
   scale_fill_gradientn(colors = rev(wes_palette(n=7, name = "Zissou1", type = "continuous")), 
-                       na.value="#F21A00") +
-theme_custom
+                       na.value="#F21A00",
+                       breaks=c(0:6)) +
+theme_custom_map
 
 # Top 10
-gothenburg.subdiv.merged %>% arrange((avg_accessibility)) %>% head(10)  %>% as_tibble() %>% count(regso)
+gothenburg.subdiv.merged %>% arrange((avg_culm_accessibility)) %>% head(10)  %>% as_tibble() %>% count(regso)
 
 ```
 
 ```{r map_rental_desos}
-got.sub.new.rentals %>% mutate(avg_accessibility = log(avg_accessibility))
-
+got.sub.new.rentals <- gothenburg.subdiv.merged %>% 
+  filter(deso %in% deso.demographics.rentals$deso)
 # Plot average accessibility by DeSO on map
 ggplot() + 
     geom_sf(data = gothenburg.subdiv.merged, alpha=0.9, linewidth=0.4) +
-  geom_sf(data = got.sub.new.rentals, aes(fill=(log10(avg_accessibility))), size=0.4, linewidth=0.2) +
+  geom_sf(data = got.sub.new.rentals, aes(fill=sqrt(avg_culm_accessibility)), size=0.4, linewidth=0.2) +
+  # geom_sf_label(data = utsatta_områden, label = utsatta_områden$neighbourhood, nudge_y = 0.007, alpha=0.8) +
+  # geom_sf(data = utsatta_områden, aes(size=(utsatta_områden$risk_level))) +
+  geom_sf_label(data = central_station, label = central_station$landmark, nudge_y = 0.012, alpha=0.8) +
+  geom_sf(data = central_station, size=2.8) +
   labs(#title="Average accessibility to public charging point in Gothenburg",
        #subtitle = "DeSO subdivisions with min 75% rental housing",
-       fill = "Average accessibility") +
+       fill = "Accessibility level") +
   scale_fill_gradientn(colors = rev(wes_palette(n=7, name = "Zissou1", type = "continuous")), 
-                       na.value="#F21A00") +
-theme_custom
+                       na.value="#F21A00",
+                       breaks=c(0:6)) +
+theme_custom_map
 
-#got.sub.new.rentals %>% arrange((avg_accessibility)) %>% head(20)  %>% as_tibble() %>% select(regso, avg_accessibility)
+got.sub.new.rentals %>% arrange((avg_culm_accessibility)) %>% head(10) %>% as_tibble() %>% count(regso)
 
+```
+ 
+```{r histogram_desos}
+joined_deso.nodes %>% pull(culmulative_accessibility) %>% mean(., na.rm=TRUE)
+## Plot map with node points and their color coded distance values
+ggplot() +
+  #geom_sf(data = streets$osm_lines, linewidth=0.2, color = '#1e00be') +
+  #geom_sf(data = main_streets$osm_lines, alpha=0.8, color = "#1e00be", linewidth=0.6) + 
+  #geom_sf(data = got.boundary$osm_multipolygons, linewidth=0.5, colour="grey") +
+  #geom_sf(data=gothenburg.subdiv, alpha=0.2, linewidth=0.6, colour="transparent", fill="#90C59B")+
+  geom_histogram(data = joined_deso.nodes, 
+                 fill=wes_palette(n=1, name = "Zissou1"), 
+                 aes(x=culmulative_accessibility), binwidth = 1.2) +
+  labs(#title="Nodes in Gothenburg City road network graph",
+     #subtitle = "By distance to charge point",
+     x = "Culmulative accessibility",
+     y="") +
+  scale_y_continuous(breaks=c(seq(0,30000, 5000))) +
+  scale_x_continuous(breaks=c(seq(0, 50, 5))) +
+  theme_custom
 ```
  
 ## Descriptive Stats
@@ -462,12 +589,14 @@ theme_custom
 ```{r demographics_ds}
 # Descriptive stats for full demographic data
 deso.demographics %>% 
-  rename(#"Nodes" = nodes, 
+  rename("Totalodes" = nodes, 
          #"Average distance to PEV charge point" = avg_dijk_dist,
          #"Potential accessibility" = avg_dd_accessibility,
          "Area (m^2)" = area_m2,
          "Population" = pop,
          "Total households" = total_households,
+         "People per household" = people_per_household,
+         "Urban density" = density,
          "Swedish background" = swedish,
          "Foreign background" = foreign,
          "Higher education" = higher_education,
@@ -477,7 +606,7 @@ deso.demographics %>%
          "Owner-occupied house" = housing,
          "Avg cars per household" = cars_per_household,
          "Total registered cars" = cars_on_road) %>%
-  select(-deso, -regso, -education_missing, -avg_accessibility, -avg_dijk_dist, -avg_euc_dist) %>% 
+  select(-deso, -regso, -education_missing, -avg_culm_accessibility, -avg_exposure, -avg_dijk_dist, -avg_travel_time) %>% 
   stargazer::stargazer(type="latex", 
                        style="asr",
                        digits=2,
@@ -493,7 +622,41 @@ deso.demographics %>%
 
 ```{r demographics_ds}
 # Sample of summarised demographic data
-deso.demographics %>% arrange(desc(total_households)) %>% head() %>%
+deso.demographics.rentals %>% arrange((avg_culm_accessibility)) %>% head(5) %>%
+  rename(#"Total nodes" = nodes, 
+         #"Average distance to PEV charge point" = avg_dijk_dist,
+         #"Potential accessibility" = avg_dd_accessibility,
+         "DeSO" = deso,
+         "ReGSO" = regso,
+         "Area (m^2)" = area_m2,
+         "Population" = pop,
+         "Total households" = total_households,
+         "People per household" = people_per_household,
+         "Urban density" = density,
+         "Swedish background" = swedish,
+         "Foreign background" = foreign,
+         "Higher education" = higher_education,
+         "Lower education" = lower_education,
+         "Rental apartment" = rental, 
+         "Condominium" = condominium, 
+         "Owner-occupied house" = housing,
+         "Avg cars per household" = cars_per_household,
+         "Total registered cars" = cars_on_road) %>%
+  select(-nodes, -education_missing, -avg_culm_accessibility, -avg_dijk_dist, -avg_exposure, -avg_travel_time) %>% 
+  stargazer::stargazer(type="latex", 
+                       style="asr", 
+                       digits = 2, 
+                       digits.extra = 0,
+                       flip = TRUE,  
+                       summary=FALSE, 
+                       title = "DeSO demographic data for Gothenburg municipality: Top five most accessible", 
+                       notes = "DeSO demographics from 2022.")
+```
+
+
+```{r demographics_ds}
+# Sample of summarised demographic data
+deso.demographics.rentals %>% arrange((avg_culm_accessibility)) %>% head(5) %>%
   rename(#"Nodes" = nodes, 
          #"Average distance to PEV charge point" = avg_dijk_dist,
          #"Potential accessibility" = avg_dd_accessibility,
@@ -507,12 +670,18 @@ deso.demographics %>% arrange(desc(total_households)) %>% head() %>%
          "Rental apartment" = rental, 
          "Condominium" = condominium, 
          "Owner-occupied house" = housing,
-         "Avg cars per household" = cars_per_household,
-         "Total registered cars" = cars_on_road) %>%
-  select(-nodes, -education_missing, -avg_accessibility, -avg_dijk_dist, -avg_euc_dist, -ages) %>% 
-  stargazer::stargazer(type="latex", style="asr", digits = 2, digits.extra = 0,  flip = TRUE,  summary=FALSE, 
+         "Avg cars per household" = cars_per_household) %>%
+         #"Total registered cars" = cars_on_road) %>%
+  select(-nodes, -education_missing, -avg_accessibility, -avg_culm_accessibility, -avg_dijk_dist, -cars_on_road) %>% 
+  stargazer::stargazer(type="text", 
+                       style="asr", 
+                       digits = 2, 
+                       digits.extra = 0,
+                       flip = TRUE,  
+                       summary=FALSE, 
                        title = "DeSO demographic data for Gothenburg municipality: Sample set", notes = "DeSO demographics from 2022.")
 ```
+
 
 ```{r demographics_rentals_ds}
 # Descriptive stats for rental demographic data
@@ -577,32 +746,194 @@ joined_deso.nodes %>%
 
 ```
 
-## Linear regressions
+## Multi-level model
 
-```{r regression}
-# Linear regressions
-# stargazer(list(model1, model2, model3), type="latex", no.space = TRUE,
-#           notes = "",#style="asr",
-#           #report=("vc*p"),
-#           dep.var.labels=c("Shortest distance (Dijkstra's)"),
-#           covariate.labels=c("Foreign background", "Accessibility", "Total nodes", "Housing area", "Median income (tkr)", "Total households", "Registered cars"))
+```{r multi_level}
 
-stargazer(list(model1, model2, model3), type="latex", no.space = TRUE,
-          notes = "",#style="asr",
-          #report=("vc*p"),
-          model.numbers=FALSE,
-          column.labels = c("Model 1", "Model 2", "Model 3"),
-          dep.var.labels=c("Public charge point accessibility"),
-          covariate.labels=c("Foreign background", "Median income (tkr)", "Cars per household", "Network nodes"))
+# plot.data.m1 <- coef(model1.accessibility)$deso %>% tibble() %>% mutate(coef = `(Intercept)`) %>% rownames_to_column(., "index")
+# # Scatter plot of coefficients
+# ggplot(data=plot.data.m1) + 
+#   geom_point(aes(x=index, y=coef), col=wes_palette(n=1,"Zissou1")) +
+#   geom_hline(yintercept = random_effects[1,]$estimate, 
+#              col=wes_palette(n=2,"GrandBudapest1")[2], size=1) +
+#   labs(x ="Index",
+#        y ="Coefficient") + theme_custom + 
+#   theme(axis.ticks.x=element_blank(), 
+#         axis.text.x = element_blank(),
+#         legend.title = element_blank())
 
-stargazer(list(model1.wt, model2.wt, model3.wt), type="latex", no.space = TRUE,
-          notes = "",#style="asr",
-          #report=("vc*p"),
-          model.numbers=FALSE,
-          column.labels = c("Model 1", "Model 2", "Model 3"),
-          dep.var.labels=c("Public charge point accessibility"),
-          covariate.labels=c("Foreign background", "Median income (tkr)", "Cars per household", "Network nodes"))
+plot.data.m2 <- coef(model2.accessibility)$deso %>% tibble() %>% mutate(coef = `(Intercept)`) %>% rownames_to_column(., "index")
+# Scatter plot of coefficients
+ggplot(data=plot.data.m2) + 
+  geom_point(aes(x=index, y=coef), col=wes_palette(n=1,"Zissou1")) +
+  geom_hline(yintercept = random_effects2[1,]$estimate,
+             col=wes_palette(n=2,"GrandBudapest1")[2], size=1) +
+  labs(x ="Index",
+       y ="Coefficient") + theme_custom + 
+  theme(axis.ticks.x=element_blank(), 
+        axis.text.x = element_blank(),
+        legend.title = element_blank())
+
+plot.data.m4 <- coef(model4.accessibility)$deso %>% tibble() %>% mutate(coef = `(Intercept)`) %>% rownames_to_column(., "index")
+# Scatter plot of coefficients
+ggplot(data=plot.data.m4) + 
+  geom_point(aes(x=index, y=coef), col=wes_palette(n=1,"Zissou1")) +
+  geom_hline(yintercept = random_effects4[1,]$estimate,
+             col=wes_palette(n=2,"GrandBudapest1")[2], size=1) +
+  labs(x ="Index",
+       y ="Coefficient") + theme_custom + 
+  theme(axis.ticks.x=element_blank(), 
+        axis.text.x = element_blank(),
+        legend.title = element_blank())
 ```
+### Scatter plots
+```{r multi_level-traveltime}
+
+# plot.data.m1 <- coef(model1.traveltime)$deso %>% tibble() %>% mutate(coef = `(Intercept)`) %>% rownames_to_column(., "index")
+# # Scatter plot of coefficients
+# ggplot(data=plot.data.m1) + 
+#   geom_point(aes(x=index, y=coef), col=wes_palette(n=1,"Zissou1")) +
+#   geom_hline(yintercept = random_effects.tt[1,]$estimate, 
+#              col=wes_palette(n=2,"GrandBudapest1")[2], size=1) +
+#   labs(x ="Index",
+#        y ="Coefficient") + theme_custom + 
+#   theme(axis.ticks.x=element_blank(), 
+#         axis.text.x = element_blank(),
+#         legend.title = element_blank())
+
+plot.data.m2 <- coef(model2.traveltime)$deso %>% tibble() %>% mutate(coef = `(Intercept)`) %>% rownames_to_column(., "index")
+# Scatter plot of coefficients
+ggplot(data=plot.data.m2) + 
+  geom_point(aes(x=index, y=coef), col=wes_palette(n=1,"Zissou1")) +
+  geom_hline(yintercept = random_effects2.tt[1,]$estimate,
+             col=wes_palette(n=2,"GrandBudapest1")[2], size=1) +
+  labs(x ="Index",
+       y ="Coefficient") + theme_custom + 
+  theme(axis.ticks.x=element_blank(), 
+        axis.text.x = element_blank(),
+        legend.title = element_blank())
+
+plot.data.m4 <- coef(model4.traveltime)$deso %>% tibble() %>% mutate(coef = `(Intercept)`) %>% rownames_to_column(., "index")
+# Scatter plot of coefficients
+ggplot(data=plot.data.m4) + 
+  geom_point(aes(x=index, y=coef), col=wes_palette(n=1,"Zissou1")) +
+  geom_hline(yintercept = random_effects4.tt[1,]$estimate,
+             col=wes_palette(n=2,"GrandBudapest1")[2], size=1) +
+  labs(x ="Index",
+       y ="Coefficient") + theme_custom + 
+  theme(axis.ticks.x=element_blank(), 
+        axis.text.x = element_blank(),
+        legend.title = element_blank())
+```
+
+### Tables
+```{r multi-model1}
+summary(model2.accessibility)
+random_effects <- tidy(model1.accessibility) %>% filter(group %in% c("deso", "Residual")) #as.data.frame(VarCorr(model1.mm))[1,]
+random_effects2 <- tidy(model2.accessibility) %>% filter(group %in% c("deso", "Residual")) #as.data.frame(VarCorr(model2.mm))[1,]
+random_effects3 <- tidy(model3.accessibility) %>% filter(group %in% c("deso", "Residual")) #as.data.frame(VarCorr(model2.mm))[1,]
+random_effects4 <- tidy(model4.accessibility) %>% filter(group %in% c("deso", "Residual")) #as.data.frame(VarCorr(model2.mm))[1,]
+
+variance <- get_variance(model1.accessibility)
+variance2 <- get_variance(model2.accessibility)
+variance3 <- get_variance(model3.accessibility)
+variance4 <- get_variance(model4.accessibility)
+
+stargazer(model_list.accessibility,
+          type = "latex", # Choose output format (text, latex, html)
+          title = "Multi-level Poisson Regression Model Results",
+          
+          digits = 3,    # Number of digits to display
+          add.lines = list(#c("REML criterion", round(glmerMod(model1.mm.pois), 2), round(REMLcrit(model2.mm.pois), 2)),
+                           c("Random Effects:"),
+                           c("- DeSO Intercept", 
+                             paste0(format(variance$var.intercept, digits = 3), " (", 
+                                    format(random_effects[1,]$estimate, digits = 3), ")"), 
+                             paste0(format(variance2$var.intercept, digits = 3), " (", 
+                                    format(random_effects2[1,]$estimate, digits = 3), ")"),
+                             paste0(format(variance3$var.intercept, digits = 3), " (", 
+                                    format(random_effects3[1,]$estimate, digits = 3), ")"),
+                             paste0(format(variance4$var.intercept, digits = 3), " (", 
+                                    format(random_effects4[1,]$estimate, digits = 3), ")"))),
+          align = FALSE,
+          model.numbers = FALSE,
+          column.sep.width = "-5pt",
+          font.size = "small", 
+          covariate.labels = c("Closeness centrality", "Foreign background", "Median income", "Housing", "Cars per household", "Urban density", "Cars per household:Urban density"),
+          dep.var.labels = c("Accessibility"),
+          column.labels = c("Model 1", "Model 2", "Model 3", "Model 4")) # Align output
+
+```
+
+```{r multi-model2}
+summary(model3.traveltime)
+random_effects.tt <- tidy(model1.traveltime) %>% filter(group %in% c("deso", "Residual")) #as.data.frame(VarCorr(model1.mm))[1,]
+random_effects2.tt <- tidy(model2.traveltime) %>% filter(group %in% c("deso", "Residual")) #as.data.frame(VarCorr(model2.mm))[1,]
+random_effects3.tt <- tidy(model3.traveltime) %>% filter(group %in% c("deso", "Residual")) #as.data.frame(VarCorr(model2.mm))[1,]
+random_effects4.tt <- tidy(model4.traveltime) %>% filter(group %in% c("deso", "Residual")) #as.data.frame(VarCorr(model2.mm))[1,]
+
+variance.tt <- get_variance(model1.traveltime)
+variance2.tt <- get_variance(model2.traveltime)
+variance3.tt <- get_variance(model3.traveltime)
+variance4.tt <- get_variance(model3.traveltime)
+
+stargazer(model_list.traveltime,
+          type = "latex", # Choose output format (text, latex, html)
+          title = "Multi-level Linear Regression Model Results",
+          digits = 3,    # Number of digits to display
+          add.lines = list(c("REML criterion", round(REMLcrit(model1.traveltime), 2), round(REMLcrit(model2.traveltime), 2), round(REMLcrit(model3.traveltime), 2)),
+                           c("Random Effects:"),
+                           c("- DeSO (Intercept)", 
+                             paste0(format(variance.tt$var.intercept, digits = 3), " (", 
+                                    format(random_effects.tt[1,]$estimate, digits = 3), ")"), 
+                             paste0(format(variance2.tt$var.intercept, digits = 3), " (", 
+                                     format(random_effects2.tt[1,]$estimate, digits = 3), ")"),
+                             paste0(format(variance3.tt$var.intercept, digits = 3), " (", 
+                                     format(random_effects3.tt[1,]$estimate, digits = 3), ")"),
+                             paste0(format(variance4.tt$var.intercept, digits = 3), " (", 
+                                     format(random_effects4.tt[1,]$estimate, digits = 3), ")"))),
+                           # c("- DeSO (Residuals)", 
+                           #    paste0(format(variance$var.residual, digits = 3), " (", 
+                           #          format(random_effects[2,]$estimate, digits = 3), ")"), 
+                           #    paste0(format(variance2$var.residual, digits = 3), " (", 
+                           #          format(random_effects2[2,]$estimate, digits = 3), ")"))),
+          align = FALSE,
+          model.numbers = FALSE,
+          column.sep.width = "-5pt",
+          font.size = "small", 
+          covariate.labels = c("Closeness centrality", "Foreign background", "Median income", "Housing", "Cars per household", "Urban density", "Cars per household:Urban density"),
+          dep.var.labels = c("Travel time"),
+          column.labels = c("Model 1", "Model 2", "Model 3", "Model 4")) # Align output
+
+```
+
+```{r modelcombined}
+model_list.combined <- list(model2.accessibility, model4.accessibility, model2.traveltime, model4.traveltime)
+stargazer(model_list.combined,
+          type = "latex", # Choose output format (text, latex, html)
+          title = "Multi-level Poisson Regression Model Results",
+          
+          digits = 3,    # Number of digits to display
+          add.lines = list(#c("REML criterion", round(glmerMod(model1.mm.pois), 2), round(REMLcrit(model2.mm.pois), 2)),
+                           c("Random Effects:"),
+                           c("- DeSO Intercept", 
+                             paste0(format(variance2$var.intercept, digits = 3), " (", 
+                                    format(random_effects2[1,]$estimate, digits = 3), ")"), 
+                             paste0(format(variance4$var.intercept, digits = 3), " (", 
+                                    format(random_effects4[1,]$estimate, digits = 3), ")"),
+                             paste0(format(variance2.tt$var.intercept, digits = 3), " (", 
+                                    format(random_effects2.tt[1,]$estimate, digits = 3), ")"),
+                             paste0(format(variance4.tt$var.intercept, digits = 3), " (", 
+                                    format(random_effects4.tt[1,]$estimate, digits = 3), ")"))),
+          align = FALSE,
+          model.numbers = FALSE,
+          column.sep.width = "-5pt",
+          font.size = "small", 
+          covariate.labels = c("Closeness centrality", "Foreign background", "Median income", "Rental", "Urban density", "Foreign bg:Rental", "Median income:Rental"),
+          dep.var.labels = c("Accessibility"),
+          column.labels = c("Model 1", "Model 2", "Model 3", "Model 4")) # Align output
+```
+
 
 ## Correlation Matrix Plot
 
