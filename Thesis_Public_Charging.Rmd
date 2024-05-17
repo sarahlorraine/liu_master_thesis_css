@@ -26,6 +26,7 @@ library(cowplot)
 library(rcartocolor)
 # Robustness checks
 library(broom)
+library(merTools)
 library(car)
 library(ggpubr)
 library(ivreg)
@@ -102,7 +103,7 @@ regSO_deso_table <- read_csv2("data/kopplingstabell-deso-regso-20210702.csv")
 regSO_deso_table <- regSO_deso_table %>% 
   filter(Kommunnamn == "Göteborg") %>%
   rename(deso = DeSO, regso = RegSO) %>%
-  select(deso, regso)
+  dplyr::select(deso, regso)
 
 # Create GOT kommon polygon from .gpkg file DeSOs
 gothenburg.subdiv <- geo %>% filter(kommunnamn == "Göteborg") #%>% 
@@ -192,12 +193,12 @@ got_streets <- location %>%
 ##### Preparing Graph of nodes and edges #####
 
 # ### Bind the relevant streets and paths into one set 
-# got_streets <- rbind((streets$osm_lines %>% select(highway)), 
-#                      main_streets$osm_lines %>% select(highway))
+# got_streets <- rbind((streets$osm_lines %>% dplyr::select(highway)), 
+#                      main_streets$osm_lines %>% dplyr::select(highway))
 # 
 # # Give each edge a unique index
 # edges <- got_streets %>% 
-#   select(highway) %>%
+#   dplyr::select(highway) %>%
 #   mutate(edgeID = c(1:n()))
 # 
 # # Create nodes at the start and end point of each edge
@@ -214,7 +215,7 @@ got_streets <- location %>%
 # nodes <- nodes %>%
 #   mutate(xy = paste(.$X, .$Y)) %>% 
 #   mutate(nodeID = group_indices(., factor(xy, levels = unique(xy)))) %>%
-#   select(-xy)
+#   dplyr::select(-xy)
 # 
 # # Combine the node indices with the edges
 # source_nodes <- nodes %>%
@@ -232,7 +233,7 @@ got_streets <- location %>%
 # # Remove duplicate nodes
 # nodes <- nodes %>%
 #   distinct(nodeID, .keep_all = TRUE) %>%
-#   select(-c(edgeID, start_end)) %>%
+#   dplyr::select(-c(edgeID, start_end)) %>%
 #   st_as_sf(coords = c('X', 'Y')) %>%
 #   st_set_crs(st_crs(edges))
 # 
@@ -268,7 +269,7 @@ got_streets <- location %>%
  got_streets.lines <- bind_rows(got_streets$osm_lines, poly_to_lines)
  
 # Select just the "highway" and "junction" values of the osmlines as the rest are not needed in the network
-got_streets.lines <- got_streets.lines %>% select(highway, junction, maxspeed)
+got_streets.lines <- got_streets.lines %>% dplyr::select(highway, junction, maxspeed)
 
 got_streets_net <- as_sfnetwork(got_streets.lines, directed = FALSE)
 
@@ -363,7 +364,7 @@ charge_points.osm <- charging_stations.osm$osm_points %>% st_filter(., gothenbur
 json <- jsonlite::fromJSON(txt="data/Charging_Points-place-to-plug.json")
 p2p.data <- json$chargingZones
 
-p2p.data <- p2p.data %>% select(id, name, address, isFastCharge, powerRange, plugTypes, status, vehicleTypes, -`__typename`)
+p2p.data <- p2p.data %>% dplyr::select(id, name, address, isFastCharge, powerRange, plugTypes, status, vehicleTypes, -`__typename`)
 p2p.data <- p2p.data %>% mutate(full_address = gsub(" , ", "", paste(ifelse(is.na(address$street), name, address$street), 
                                          address$city, 
                                          address$subdivision)))
@@ -408,7 +409,7 @@ p2p.data <- p2p.data %>% mutate(vehicleTypes.car = ifelse(grepl("CAR", p2p.data$
                                 powerRange.min = as.numeric(p2p.data$powerRange$min),
                                 powerRange.max = as.numeric(p2p.data$powerRange$max))
 
-p2p.data <- p2p.data %>% na.omit(powerRange.min, powerRange.max) %>% select(id, full_address, lon, lat, status,
+p2p.data <- p2p.data %>% na.omit(powerRange.min, powerRange.max) %>% dplyr::select(id, full_address, lon, lat, status,
                                              vehicleTypes.car, vehicleTypes.bike, vehicleTypes.motorbike, 
                                              isFastCharge, powerRange.min, powerRange.max
                                               )
@@ -417,7 +418,7 @@ p2p.data <- p2p.data %>% mutate(lng = lon) %>% filter(powerRange.min > 0)
 p2p.data <- p2p.data %>% filter(between(lng, coords[1], coords[3]) &
                                                     between(lat,coords[2], coords[4]))
 
-charge_points.p2p <- p2p.data %>% filter(vehicleTypes.car == TRUE) %>% select(-status, -vehicleTypes.bike, -vehicleTypes.motorbike)# %>% select(lat, lng)
+charge_points.p2p <- p2p.data %>% filter(vehicleTypes.car == TRUE) %>% dplyr::select(-status, -vehicleTypes.bike, -vehicleTypes.motorbike)# %>% dplyr::select(lat, lng)
 
 charge_points.p2p.geo <- st_as_sf(charge_points.p2p, 
                                   coords = c("lng", "lat"), crs = 4326)
@@ -505,7 +506,7 @@ joined_charge_points <- joined_charge_points %>%
   mutate(capacity = as.integer(ifelse(is.na(capacity), median_cap, capacity))) %>% 
   # Rename geometry and remove duplicates
   mutate(geometry = geometry.y) %>% 
-  select(-geometry.x, -geometry.y) %>% st_as_sf()
+  dplyr::select(-geometry.x, -geometry.y) %>% st_as_sf()
 
 #joined_charge_points <- st_join(charge_points.p2p.geo.nodes, charge_points.osm.nodes, left=TRUE)
 
@@ -582,7 +583,7 @@ for (i in 1:length(knn.sf$nn)) {
 
 colnames(closest_charge_sf) <- c("charge_id", "distance")
 got_streets_net.knn <- cbind(got_streets_coords, closest_charge_sf) %>% 
-  mutate(Lon = X, Lat = Y) %>% select(-X, -Y)
+  mutate(Lon = X, Lat = Y) %>% dplyr::select(-X, -Y)
 
 # 
 # knn.sf.nodes <- nngeo::st_nn(x = joined_charge_points, 
@@ -607,7 +608,7 @@ got_streets_net.knn <- cbind(got_streets_coords, closest_charge_sf) %>%
 # Create a simple matrix of snap points based on the closest node calculated using knn above
 # snap_matrix <- closest.sf.nodes %>%
 #   rownames_to_column(., var = "charge_id") %>%
-#   select(node_id, charge_id)
+#   dplyr::select(node_id, charge_id)
 # 
 # # Function: Based on the closest network node to a charge point, get snap point geometry
 # getSnapPoint <- function(node) {
@@ -646,14 +647,14 @@ got_streets_net.knn <- cbind(got_streets_coords, closest_charge_sf) %>%
 # # Node ids: Mutate the existing charge point data using the above functions
 # charge_points.p2p.geo.nodes <- charge_points.p2p.geo %>%
 #   mutate(nodeId = mapply(getNodePoint, charge_id)) %>%
-#   select(charge_id, nodeId) %>%
+#   dplyr::select(charge_id, nodeId) %>%
 #   as_tibble() %>%
 #   st_as_sf(crs = 4326)
 # 
 # # Snap point geometry: Mutate the existing charge point data using the above functions
 # charge_points.p2p.geo.snaps <- charge_points.p2p.geo %>%
 #   mutate(geometry = mapply(getSnapPoint, charge_id)) %>%
-#   select(charge_id, geometry) %>%
+#   dplyr::select(charge_id, geometry) %>%
 #   as_tibble() %>%
 #   st_as_sf(crs = 4326)
 ```
@@ -893,6 +894,79 @@ write_csv(time_per_point, "data/dijkstras_time_per_point.csv")
 
 ```
 
+```{r node_exposure}
+### !! Note: This functions takes about 4 hours to complete !! 
+### Read the pre-generated data already exported from the csv:
+#exposure_per_point <- read_csv("data/node_exposure_per_point.csv")
+
+## Loop over each node in the entire road network and find the shortest path to a charge point
+all_nodes <- got_streets_net %>% activate(nodes) %>% as_tibble()
+
+# define the weights to use. In this case time to destination
+path_weights <- got_streets_net %>% activate(edges) %>% pull(time)
+# Get the city center node for exposure calculation
+city_center <- st_nearest_feature(central_station, got_streets_net)
+city_center_node <- got_streets_net %>%
+                    activate(nodes) %>%
+                    filter(id == city_center) %>%
+                    pull(id)
+
+# Set the empty df for storing each result
+exposure_per_point <- data_frame()
+
+start.time <- Sys.time()
+for(i in 1:nrow(all_nodes)) {
+  # select current node in iteration
+  current_node <- all_nodes[i,]$id
+  print(paste("Running:", current_node))
+  # get shortest path for the current node to the city center
+    from_node <- got_streets_net %>%
+                    activate(nodes) %>%
+                    filter(id == current_node) %>%
+                    pull(id) # ! It would be safer to use the vertex index here otherwise it can easily be broken if changes are made to the network graph, such as filtering as the shortest_path algorithm does not use the node attribute "id" col, but it's index.
+    to_node <- city_center_node
+    print(paste("from node:", from_node, "to node:",  city_center_node))
+
+      path <- shortest_paths(
+                graph = got_streets_net,
+                from = from_node,
+                to = to_node,
+                #mode = "all",
+                output="both",
+                algorithm ="dijkstra", # Ensure to use Dijkstra's algorithm
+                weights = path_weights
+              )
+    path_graph <-  got_streets_net %>%
+                   subgraph.edges(eids = path$epath %>% unlist()) %>%
+                   as_tbl_graph()
+    
+   distance_data <- path_graph %>%
+          activate(edges) %>%
+          as_tibble() %>%
+          summarise(length = sum(length))
+   
+   time_data <- path_graph %>%
+          activate(edges) %>%
+          as_tibble() %>%
+          summarise(time = sum(time))
+   
+    print(paste("Distance:", distance_data, "Time", time_data))
+    new_data <- tibble(from_node = from_node, to_node = city_center_node, time = time_data$time, distance = distance_data$length)
+    exposure_per_point <- rbind(exposure_per_point, new_data)
+  print("")
+  print(paste(scales::percent(current_node / nrow(all_nodes)), "complete"))
+  print("")
+}
+
+end.time <- Sys.time()
+time.taken <- round(end.time - start.time, 2)
+time.taken
+
+# Save as csv for backup as the function takes 6 hours to run and you do not want to risk R crashing...
+write_csv(exposure_per_point, "data/node_exposure_per_point.csv")
+```
+
+
 ```{r clean_dijkstras_data}
 # Merge with the road network data by from_node id to get the geometry values. Cast to sf network.
 distances_per_point.sf <- merge(time_per_point,
@@ -904,9 +978,9 @@ distances_per_point.sf <- merge(time_per_point,
 distances_per_point.sf <- distances_per_point.sf %>%
   mutate(chargeId = closest_charge_sf$charge_id, 
          knn_distance = closest_charge_sf$distance,
+         exposure = exposure_per_point$time,
          travel_time = time,
-         dijkstras_distance = distance) %>%
-  select(from_node, to_node, chargeId, travel_time, dijkstras_distance, knn_distance, everything(), -distance)
+         dijkstras_distance = distance)
 
 # Filter out nodes that are the same as the corresponding charge point as this distance is of course zero.
 #distances_per_point.sf %>% view()
@@ -915,23 +989,13 @@ distances_per_point.sf %>% filter(from_node == to_node)
 # Filter the nodes to the GOT DeSOs to remove those that fall outside. This is just used for this initial plotting
 filtered <- st_filter(distances_per_point.sf, gothenburg.subdiv)
 filtered %>% filter(is.na(to_node)) %>% nrow()
-# Plot the data so far
-ggplot() +
-  # All road network nodes
-  #geom_sf(data = got_streets_net %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), size=0.4) +
-  # nodes coloured by distance
-  geom_sf(data=filtered, size=0.5, aes(color=scale(travel_time, center = TRUE))) +
-  # Charge points
-  geom_sf(data=joined_charge_points, col="blue") +
-  # DeSO Subdivisions
-  geom_sf(data = gothenburg.subdiv, alpha=0.3, linewidth=0.6, colour="#8778D7", fill=NA) + 
-  scale_color_distiller(palette = "Oranges") + theme_void()
+
 ```
 
 
 ### Accessibility measures
 
-Using a measure for potential accessibility by distance decay. Operationalized as a negative exponential function for surrounding nodes
+Using a measure for culmulative count accessibility by distance decay. Operationalized as a negative exponential function for surrounding nodes
 
 ```{r prepare_data_accessibility, include=FALSE}
 # https://cran.r-project.org/web/packages/accessibility/vignettes/accessibility.html
@@ -947,7 +1011,7 @@ distance_travel_matrix <- closest_charge_sf %>%
          to_id = charge_node_id, 
          length = distance,
          from_to = paste0(from_id, ":", to_id)) %>% 
-  select(from_id, to_id, length, from_to)
+  dplyr::select(from_id, to_id, length, from_to)
 
 # Create an additional travel matrix using the dijkstras shortest paths distance for comparison
 distance_travel_matrix_dijk <- distances_per_point.sf %>% 
@@ -959,13 +1023,13 @@ distance_travel_matrix_dijk <- distance_travel_matrix_dijk %>%
          distance = as.numeric(dijkstras_distance),
          travel_time = as.numeric(travel_time)
          ) %>%
-  select(from_id, to_id, length, travel_time, deso) %>% as_tibble()
+  dplyr::select(from_id, to_id, length, travel_time, deso) %>% as_tibble()
 
 # Group duplicate locations together and combine the capacities
 grouped_charge_points <- joined_charge_points %>% 
   count(nodeId, capacity) %>% 
   as_tibble() %>% 
-  select(nodeId, capacity, -geometry) %>% 
+  dplyr::select(nodeId, capacity, -geometry) %>% 
   group_by(nodeId) %>% 
   summarise(capacity = sum(capacity))
 
@@ -980,14 +1044,14 @@ got_streets_net.with_charge <- got_streets_net %>%
                    0)
     )
   )  
-
+?tidygraph
 # Check how many charge points are connected for validation
 got_streets_net.with_charge %>% activate(nodes) %>% filter(charge_points > 0)
 
 # Create a Land use data frame
 charge_land_use <- got_streets_net.with_charge %>% 
   as_data_frame(., what="vertices") %>%
-  select(id, charge_points)
+  dplyr::select(id, charge_points)
 
 charge_land_use %>% filter(charge_points > 0)
 
@@ -1033,35 +1097,27 @@ joined_deso.nodes <- st_join(distances_per_point.sf, gothenburg.subdiv, join = s
 
 ##Merge in the distance decay accessibility values
 joined_deso.nodes <- merge(joined_deso.nodes,
-                        negative_exp_dijk,
+                        culm_count,
                         by.x="from_node",
                         by.y="id",
                         all=TRUE) %>%
-  rename(potential_accessibility = "charge_points") %>%
-  merge(.,
-        culm_count,
-        by.x="from_node",
-        by.y="id",
-        all=TRUE) %>%
-  rename(culmulative_accessibility = "charge_points") %>%
-st_as_sf()
+                  rename(culmulative_accessibility = "charge_points") %>%
+                st_as_sf()
 
 
 # Summarise the average distances for each by DeSO
 avg_dist_deso <- joined_deso.nodes %>% as_tibble() %>% 
   group_by(deso) %>% 
   summarise(nodes = n(),
-            # remove NA values from the mean to avoid an average NA result
-            avg_dijk_dist = mean(dijkstras_distance, na.rm=TRUE),
+            avg_exposure = mean(exposure),
+            avg_dijk_dist = mean(dijkstras_distance),
             avg_travel_time = mean(travel_time),
-            avg_culm_accessibility = mean(as.numeric(culmulative_accessibility), na.rm=TRUE),
-            #avg_euc_dist = mean(knn_distance, na.rm=TRUE),
-            avg_accessibility = mean(potential_accessibility, na.rm=TRUE)) %>% 
-  arrange(avg_accessibility)
+            avg_culm_accessibility = median(as.numeric(culmulative_accessibility))) %>%
+  arrange(avg_culm_accessibility)
 
 # Join with the ReGSO data to get the associated ReGSO neighbourhood name
 avg_dist_deso <- merge(avg_dist_deso, regSO_deso_table, by="deso") %>% 
-  arrange((avg_accessibility))
+  arrange((avg_culm_accessibility))
 
 # Merge with the Gothenburg DeSO polygons for plotting
 gothenburg.subdiv.merged <- merge(gothenburg.subdiv, avg_dist_deso, by="deso", all=FALSE)
@@ -1073,7 +1129,7 @@ ggplot() +
   geom_sf(data=joined_charge_points, col="blue") +
   scale_fill_distiller(palette="Oranges")
 
-avg_dist_deso %>% mutate(avg_accessibility = (avg_accessibility)) %>% filter(deso == "1480C3220")
+avg_dist_deso %>% mutate(avg_culm_accessibility = (avg_culm_accessibility)) %>% filter(deso == "1480C3220")
 ```
 
 ```{r plot_missings}
@@ -1113,7 +1169,7 @@ ggplot() +
   # Charge points
   geom_sf(data=joined_charge_points, col="blue") +
   geom_sf(data = missings, size=0.4, col="red") +
-  #geom_sf(data = main_streets$osm_lines %>% select(highway), size=0.4, col="black") +
+  #geom_sf(data = main_streets$osm_lines %>% dplyr::select(highway), size=0.4, col="black") +
   scale_fill_distiller(palette = "Oranges")
 ```
 
@@ -1140,7 +1196,7 @@ gothenburg.subdiv.merged %>% arrange(desc(avg_culm_accessibility))
 # Order the subdivisions by Regso
 gothenburg.subdiv.merged <- gothenburg.subdiv.merged %>% arrange(regso)
 # Get a list of ReGSO data
-regso.list <- avg_dist_deso %>% select(deso, regso)
+regso.list <- avg_dist_deso %>% dplyr::select(deso, regso)
 # Read csvs for deso data per demographic
 deso.income <- read_csv("data/income_demographics_deso.csv")
 deso.foreignborn <- read_csv("data/foreignborn_demographics_deso.csv")
@@ -1155,11 +1211,11 @@ deso.households <- read_csv("data/households_demographics_deso.csv")
 # Cleaning Deso data
 deso.foreignborn <- deso.foreignborn %>% 
   mutate(swedish = swedish / total, foreign = foreign / total) %>% 
-  select(-total) %>%
+  dplyr::select(-total) %>%
   filter(deso %in% regso.list$deso)
 
 deso.income <- deso.income %>% 
-  select(deso, `Median income tkr`) %>%
+  dplyr::select(deso, `Median income tkr`) %>%
   filter(deso %in% regso.list$deso)
 
 deso.education <- deso.education %>% 
@@ -1170,22 +1226,22 @@ deso.education <- deso.education %>%
          # define lower education
          lower_education = (middle_school + gymnasium) / total,
          education_missing = education_missing / total) %>%
-  select(deso, higher_education, lower_education, education_missing)
+  dplyr::select(deso, higher_education, lower_education, education_missing)
 
 deso.housing <- deso.housing %>% 
   filter(deso %in% regso.list$deso) %>%
-  select(deso, hyresrätt, bostadsrätt, äganderätt) %>%
+  dplyr::select(deso, hyresrätt, bostadsrätt, äganderätt) %>%
   filter(deso %in% regso.list$deso) %>%
   mutate(total = rowSums(.[, -1]),
          rental = hyresrätt / total,
          condominium = bostadsrätt / total,
          housing = äganderätt / total) %>%
-  select(deso, rental, condominium, housing)
+  dplyr::select(deso, rental, condominium, housing)
 
 deso.cars <- deso.cars %>%
   filter(deso %in% regso.list$deso) %>%
   mutate(cars_on_road = bilar_i_trafik) %>%
-  select(deso, cars_on_road)
+  dplyr::select(deso, cars_on_road)
 
 deso.age <- deso.age %>% 
   filter(deso %in% regso.list$deso) %>%
@@ -1196,15 +1252,15 @@ deso.pop <- deso.age %>%
   filter(deso %in% regso.list$deso) %>% 
   mutate(pop = total, 
          ages = list(data_frame(across(colnames(deso.age[,3:19]))))) %>% 
-  select(deso, pop) # ages
+  dplyr::select(deso, pop) # ages
 
 deso.households <- deso.households %>%
   filter(deso %in% regso.list$deso) %>% 
-  select(deso, total_households) 
+  dplyr::select(deso, total_households) 
 
 deso_aream2 <- gothenburg.subdiv %>% as_tibble() %>% 
   mutate(area_m2 = as.double(area)) %>% 
-  select(deso, area_m2)
+  dplyr::select(deso, area_m2)
 ```
 
 ```{r combine_demographic_data}
@@ -1220,8 +1276,10 @@ deso.demographics <- deso_aream2 %>%
   merge(., deso.cars, by="deso") %>%
   # Calculate average cars per household
   mutate(cars_per_household = cars_on_road / total_households) %>%
-  select(deso, regso, nodes, avg_accessibility, avg_dijk_dist,  everything()) %>%
-  arrange(desc(avg_accessibility))
+  mutate(people_per_household = pop / total_households) %>%
+  mutate(density = pop / area_m2) %>%
+  dplyr::select(deso, regso, nodes, avg_dijk_dist,  everything()) %>%
+  arrange(desc(avg_culm_accessibility))
 
 #view(deso.demographics.rentals)
 
@@ -1237,8 +1295,8 @@ deso.demographics.owner.occupied <- deso.demographics %>%
 filter(housing >= 0.75 | condominium >= 0.75)
 
 # # Write files to csv if needed
-# write_csv(deso.demographics %>% select(-ages), "data/deso_demographics.csv")
-# write.csv(deso.demographics.rentals %>% select(-ages), "data/deso_demographics_rentals.csv")
+# write_csv(deso.demographics %>% dplyr::select(-ages), "data/deso_demographics.csv")
+# write.csv(deso.demographics.rentals %>% dplyr::select(-ages), "data/deso_demographics_rentals.csv")
 
 # List of problem areas in Gothenburg as listed by the Swedish Police
 # https://goteborg.se/wps/portal/enhetssida/statistik-och-analys/geografi/utsatta-omraden
@@ -1258,82 +1316,153 @@ central_station <- tibble(landmark = c("Central Station"),
 
 ```
 
-### Linear regressions
-
-```{r lm_models_all, eval=TRUE, include=TRUE}
-# Gen the min value of accessibility after removing results with zero
-min_rm_zero <- deso.demographics %>% filter(avg_accessibility > 0) %>% select(avg_accessibility) %>% min()
-deso.demographics %>%  mutate(avg_culm_accessibility = sqrt(avg_culm_accessibility)) %>% select(avg_culm_accessibility) %>% min()
-
-# Cap the outliers that fall outside the 95 
-accessibility_capped <- deso.demographics$avg_accessibility
-qnt <- quantile(accessibility_capped, probs=c(.25, .75), na.rm = T)
-caps <- quantile(accessibility_capped, probs=c(.05, .95), na.rm = T)
-H <- 1.5 * IQR(accessibility_capped, na.rm = T)
-accessibility_capped[accessibility_capped < (qnt[1] - H)] <- caps[1]
-accessibility_capped[x > (qnt[2] + H)] <- caps[2]
-
-deso.demographics_na.rm <- deso.demographics %>% 
-  # Set the values of Billdal to the min value excluding zero. This is to supportlog10 in the models
-  mutate(avg_accessibility = accessibility_capped) %>%
-  mutate(avg_accessibility = ifelse(avg_accessibility == 0, min_rm_zero, avg_accessibility)) %>% 
-  rownames_to_column(., "i") #%>% 
-  # Remove outlier # 43
-  #filter(i != 43)
-
-## For ease of readability it would be good to scale the average distance
-model1 <- lm(sqrt(avg_culm_accessibility) ~foreign+cars_per_household,
-             data = deso.demographics_na.rm)
-summary(model1)
-
-model2 <- lm(sqrt(avg_culm_accessibility)~foreign+cars_per_household+`Median income tkr`,
-             data = deso.demographics_na.rm)
-summary(model2)
-#log10(avg_accessibility)~foreign+avg_dijk_dist+pop+nodes+housing+cars_on_road
-model3 <- lm(sqrt(avg_culm_accessibility)~foreign+cars_per_household+`Median income tkr`+nodes, 
-             data = deso.demographics_na.rm)
-summary(model3)
-```
-
 ### Multi-level model
 
+```{r nodelevel_data_cleaning}
+# test <- got_streets_net
+# test <- test %>% activate("nodes") %>% mutate(eigen_centrality = eigen_centrality(got_streets_net)$vector)
+# test.tibble <- test %>% activate("nodes") %>% as_tibble()
+# plot(test.tibble$eigen_centrality)
 
-```{r model_cleaning}
+# Closeness Centrality indicates how close a node is to the other nodes. 
+# It is calculated as the average of the shortest path lengths of the node to the other nodes in the network.
+# (8+ minutes to run)
+start.time <- Sys.time()
+closeness <- closeness(
+  got_streets_net,
+  vids = V(got_streets_net),
+  mode = "all",
+  weights = path_weights,
+  normalized = FALSE,
+  cutoff = -1
+)
+end.time <- Sys.time()
+time.taken <- round(end.time - start.time, 2)
+time.taken
+
 node_data <- joined_deso.nodes %>% as_tibble() %>%
-  mutate(capacity = as.numeric(grouped_charge_points[match(joined_deso.nodes$to_node, grouped_charge_points$nodeId),]$capacity),
-         dijkstras_distance = as.numeric(dijkstras_distance),
+  mutate(#capacity = as.numeric(grouped_charge_points[match(joined_deso.nodes$to_node, grouped_charge_points$nodeId),]$capacity),
+         #dijkstras_distance = as.numeric(dijkstras_distance),
+         id = from_node,
          travel_time = as.numeric(travel_time),
+         closeness = closeness,
          deso = factor(deso)) %>% 
-  select(deso, capacity, culmulative_accessibility, travel_time, dijkstras_distance, -geometry) %>% tibble()
+  left_join(charge_land_use, by="id") %>%
+  left_join(., deso.demographics, by="deso") %>%
+  mutate(eigen_centrality = test.tibble$eigen_centrality) %>%
+  rename(capacity = "charge_points") %>%
+  dplyr::select(id, deso, regso, capacity, culmulative_accessibility, nodes, people_per_household, density, closeness, exposure, travel_time, area_m2, pop, rental, condominium, housing, cars_per_household, foreign, swedish, `Median income tkr`, higher_education, lower_education, total_households) %>% tibble()
+
+# Scale the predictor variables
 node_data <- node_data %>%
-   mutate_at(c(3:5), funs(c(scale(.))))
+   mutate_at(c(7:length(colnames(node_data))), funs(c(scale(.))))
+
+#View a sample DESO
 node_data %>% filter(deso == "1480A0050")
 ```
 
+```{r all}
+model1.accessibility <- glmer(formula = culmulative_accessibility ~closeness+foreign+cars_per_household+density+(1|deso),
+              family="poisson",
+              data=node_data)
+
+model2.accessibility <- glmer(formula = culmulative_accessibility ~closeness+foreign*rental+density+(1|deso), 
+              family="poisson",
+              data=node_data)
+
+model3.accessibility <- glmer(formula = culmulative_accessibility ~closeness+`Median income tkr`+cars_per_household+density+(1|deso), 
+              family="poisson",
+              data=node_data)
+
+model4.accessibility <- glmer(formula = culmulative_accessibility ~closeness+`Median income tkr`*rental+density+(1|deso), 
+              family="poisson",
+              data=node_data)
+
+
+summary(model2.accessibility)
+get_variance_random(model3.accessibility)
+ranef(model1.accessibility)$deso %>% head(5)
+plotREsim(REsim(model1.accessibility))
+predictInterval(model1.accessibility)
+
+model_list.accessibility <- list(model1.accessibility, model2.accessibility,  model3.accessibility, model4.accessibility)
+
+stargazer(model_list.accessibility, type="text")
+```
+
+```{r rentals}
+# Filter by majority rental areas
+node_data_rentals <- node_data %>% filter(rental > 0.50)
+
+model1.accessibility.rentals <- glmer(formula = culmulative_accessibility ~closeness+foreign+housing+density+(1|deso),
+              family="poisson",
+              data=node_data_rentals)
+
+model2.accessibility.rentals <- glmer(formula = culmulative_accessibility ~closeness+foreign*rental+cars_per_household+density+(1|deso), 
+              family="poisson",
+              data=node_data_rentals)
+
+model3.accessibility.rentals <- glmer(formula = culmulative_accessibility ~closeness+`Median income tkr`+housing+density+(1|deso), 
+              family="poisson",
+              data=node_data_rentals)
+
+model4.accessibility.rentals <- glmer(formula = culmulative_accessibility ~closeness+`Median income tkr`+cars_per_household*density+(1|deso), 
+              family="poisson",
+              data=node_data_rentals)
+
+
+summary(model2.accessibility.rentals)
+get_variance_random(model3.accessibility.rentals)
+ranef(model1.accessibility.rentals)$deso %>% head(5)
+plotREsim(REsim(model1.accessibility.rentals))
+predictInterval(model1.accessibility.rentals)
+
+model_list.accessibility.rentals <- list(model1.accessibility.rentals, model2.accessibility.rentals, model3.accessibility.rentals, model4.accessibility)
+
+stargazer(model_list.accessibility.rentals, type="text")
+```
 
 ```{r multi_level}
-model1.mm <- lmer(culmulative_accessibility ~ travel_time + dijkstras_distance + (1 | deso), data = node_data)
-summary(model1.mm)
-tidy(model1.mm)
-get_variance_random(model1.mm)
+model1.traveltime <- lmer(formula = (travel_time) ~closeness+foreign+cars_per_household+density+(1|deso),
+              data=node_data,
+              na.action=na.exclude)
 
-model2.mm <- lmer(travel_time ~ dijkstras_distance + (culmulative_accessibility | deso), data = node_data)
-summary(model2.mm)
-tidy(model2.mm)
+model2.traveltime <- lmer(formula = (travel_time) ~closeness+foreign*rental+density + (1|deso), 
+              data=node_data,
+              na.action=na.exclude)
+
+model3.traveltime <- lmer(formula = (travel_time) ~closeness + `Median income tkr`+cars_per_household+density+(1|deso), 
+              data=node_data,
+              na.action=na.exclude)
+
+model4.traveltime <- lmer(formula = (travel_time) ~closeness + `Median income tkr`*rental+density + (1|deso), 
+              data=node_data,
+              na.action=na.exclude)
+
+summary(model2.traveltime)
+get_variance_random(model2.traveltime)
+ranef(model2.traveltime)$deso %>% head(5)
+plotREsim(REsim(model2.traveltime)) 
+predictInterval(model2.traveltime)
+
+model_list.traveltime <- list(model1.traveltime, model2.traveltime, model3.traveltime, model4.traveltime)
+
+stargazer(model_list.traveltime, type="text")
 
 ```
 
+### Prediction tests
 ```{r}
 model1 <- lm(sqrt(avg_culm_accessibility) ~cars_per_household+`Median income tkr`+nodes,
-             data = deso.demographics_na.rm)
+             data = deso.demographics)
 summary(model1)
 
-new_data <- deso.demographics_na.rm %>% select(foreign, `Median income tkr`, cars_per_household, nodes, housing) # Provide new data for prediction
+new_data <- deso.demographics %>% dplyr::select(foreign, `Median income tkr`, cars_per_household, nodes, housing) # Provide new data for prediction
 predicted_new <- predict(model1, newdata = new_data)
 
 # Create a scatter plot with separate points for original and predicted values
 ggplot() +
-  geom_histogram(data = deso.demographics_na.rm, aes(x=avg_culm_accessibility), fill="light blue") +
+  geom_histogram(data = deso.demographics, aes(x=avg_culm_accessibility), fill="light blue") +
   geom_histogram(data = tibble(value = predicted_new), aes(x=value), fill="red", alpha=0.6) +
   labs(x = "Values", y = "Values", title = "Original vs. Predicted Values") +
   theme_minimal()
@@ -1341,108 +1470,33 @@ ggplot() +
 median(predicted_new)
 ```
 
-
-```{r linear_regression.weighted}
-wt.1 <- 1 / lm(abs(model1$residuals) ~ model1$fitted.values)$fitted.values^2
-
-model1.wt <- lm(sqrt(avg_culm_accessibility)~foreign+cars_per_household,  
-             data = deso.demographics_na.rm, weights=wt.1)
-summary(model1.wt)
-
-wt.2 <- 1 / lm(abs(model2$residuals) ~ model2$fitted.values)$fitted.values^2
-
-model2.wt <- lm(sqrt(avg_culm_accessibility)~foreign+cars_per_household+`Median income tkr`,  
-             data = deso.demographics_na.rm, weights=wt.2)
-summary(model2.wt)
-
-wt.3 <- 1 / lm(abs(model3$residuals) ~ model3$fitted.values)$fitted.values^2
-
-model3.wt <- lm(sqrt(avg_culm_accessibility)~foreign+cars_per_household+`Median income tkr`+nodes,  
-             data = deso.demographics_na.rm, weights=wt.3)
-summary(model3.wt, diagnostics=TRUE)
-```
-
-```{r linear_regression.travel}
-model1.time <- lm(avg_travel_time ~foreign+cars_per_household,
-             data = deso.demographics_na.rm)
-summary(model1.time)
-
-model2.time <- lm(avg_travel_time~foreign+cars_per_household+`Median income tkr`,
-             data = deso.demographics_na.rm)
-summary(model2.time)
-#log10(avg_accessibility)~foreign+avg_dijk_dist+pop+nodes+housing+cars_on_road
-model3.time <- lm(avg_travel_time~foreign+cars_per_household+`Median income tkr`+nodes, 
-             data = deso.demographics_na.rm)
-summary(model3.time)
-```
-
-```{r linear_regression.weighted.travel}
-time.wt.1 <- 1 / lm(abs(model1.time$residuals) ~ model1.time$fitted.values)$fitted.values^2
-
-model1.wt.time <- lm(avg_travel_time~foreign+cars_per_household,  
-             data = deso.demographics_na.rm, weights=wt.1)
-summary(model1.wt.time)
-
-time.wt.2 <- 1 / lm(abs(model2.time$residuals) ~ model2.time$fitted.values)$fitted.values^2
-
-model2.wt.time <- lm(avg_travel_time~foreign+`Median income tkr`+cars_per_household,  
-             data = deso.demographics_na.rm, weights=wt.2)
-summary(model2.wt.time)
-
-time.wt.3 <- 1 / lm(abs(model3.time$residuals) ~ model3.time$fitted.values)$fitted.values^2
-
-model3.wt.time <- lm(avg_travel_time~foreign+`Median income tkr`+cars_per_household+nodes,  
-             data = deso.demographics_na.rm, weights=wt.3)
-summary(model3.wt.time, diagnostics=TRUE)
-```
-
 ```{r lm.test1}
 # Min/Max log accessibility
-deso.demographics_na.rm %>% mutate(avg_accessibility = log10(avg_accessibility)) %>% select(avg_accessibility) %>% max()
-deso.demographics_na.rm %>% mutate(avg_accessibility = log10(avg_accessibility)) %>% select(avg_accessibility) %>% min()
+deso.demographics %>% mutate(avg_accessibility = log10(avg_accessibility)) %>% dplyr::select(avg_accessibility) %>% max()
+deso.demographics %>% mutate(avg_accessibility = log10(avg_accessibility)) %>% dplyr::select(avg_accessibility) %>% min()
 
 # Confidence intervals
 confint(model1.wt)
 
-deso.demographics_na.rm %>% arrange(desc(avg_culm_accessibility)) %>% select(avg_culm_accessibility) %>% summarize(mean = mean(avg_culm_accessibility))
+deso.demographics %>% arrange(desc(avg_culm_accessibility)) %>% dplyr::select(avg_culm_accessibility) %>% summarize(mean = mean(avg_culm_accessibility))
 plot(model1)
 ```
 
 ```{r lm.test2}
 # Homoscedasticity test
-ggplot(data = deso.demographics_na.rm, aes(x = fitted(model1.wt), y = resid(model1.wt))) +
+ggplot(data = node_data, aes(x = fitted(model1.accessibility), y = resid(model1.accessibility))) +
   geom_point() +
   geom_smooth(method = "loess", se = FALSE, linetype = "dashed") +
   labs(x = "Fitted Values", y = "Residuals") +
   ggtitle("Residuals vs Fitted Values") +
   theme(text = element_text(size = 12, family = "Cambria")) + theme_minimal()
 
-# -- Breusch-Pagan test # -- Breusch-Pagan test # -- Breusch-Pagan test 
-# https://sscc.wisc.edu/sscc/pubs/RegDiag-R/homoscedasticity.html
-# All non-weighted LR pass the HSC test, but only model 3 of the weighted model passes
-ncvTest(model3.wt)
-
-# Endogeneity, Wald test
-# A Wald test can be used to test if one or more parameters in a model are equal to certain values.
-model1_wt.lv <- ivreg(avg_culm_accessibility~foreign+cars_per_household,  
-             data = deso.demographics_na.rm, weights=wt.1)
-summary(model1_wt.lv)
-
-model2_wt.lv <- ivreg(avg_culm_accessibility~foreign+`Median income tkr`+cars_per_household,  
-             data = deso.demographics_na.rm, weights=wt.2)
-summary(model2_wt.lv)
-
-model3_wt.lv <- ivreg(avg_culm_accessibility~foreign+`Median income tkr`+cars_per_household+nodes,  
-             data = deso.demographics_na.rm, weights=wt.3)
-
-summary(model3_wt.lv)
-
 #Outliers: car
 car::outlierTest(model1)
 #Outliers: Cooks distance
-cooksd <- cooks.distance(model1)
+cooksd <- cooks.distance(model1.mm.pois)
 influential <- as.numeric(names(cooksd)[(cooksd > 4*mean(cooksd, na.rm=T))])  # influential row numbers
-tail(deso.demographics_na.rm[influential, ])
+tail(node_data[influential, ])
 plot(cooksd, pch="*", cex=2, main="Influential Obs by Cooks distance")  #plot cook's distance
 abline(h = 4*mean(cooksd, na.rm=T), col="red")  # add cutoff line
 text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4*mean(cooksd, na.rm=T),names(cooksd),""), col="red")  # add labels
@@ -1452,36 +1506,25 @@ text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4*mean(cooksd, na.rm=T
 # VIF = 1: There is no correlation between a given predictor variable and any other predictor variables in the model.
 # VIF between 1 and 5: There is moderate correlation between a given predictor variable and other predictor variables in the model.
 # VIF > 5: There is severe correlation between a given predictor variable and other predictor variables in the model.
-vif(model1)
-vif(model2)
-vif(model3)
-vif(model1.wt)
-vif(model2.wt)
-vif(model3.wt)
+vif(model1.accessibility)
+vif(model2.accessibility)
+vif(model3.accessibility)
+
+vif(model1.traveltime)
+vif(model2.traveltime)
+vif(model3.traveltime)
 
 ## Normality of residuals
-ols_plot_resid_qq(model3.wt)
-ols_plot_resid_fit(model3.wt)
-ols_plot_resid_hist(model3.wt)
-ols_test_correlation(model3.wt)
-plot(model3.wt, 5)
-```
-
-
-```{r lm_models_rental_areas, eval=TRUE, include=TRUE}
-model1.rentals <- lm((avg_dijk_dist / 1000)~foreign+avg_accessibility+nodes+housing,  
-             data = deso.demographics.rentals)
-
-model2.rentals <- lm((avg_dijk_dist / 1000)~foreign+avg_accessibility+nodes+housing+`Median income tkr`,
-             data = deso.demographics.rentals)
-summary(model2.rentals)
-model3.rentals <- lm((avg_dijk_dist /1000)~foreign+avg_accessibility+nodes+housing+total_households+cars_on_road,
-             data = deso.demographics.rentals)
-summary(model3.rentals)
+plot(model3.traveltime)
 ```
 
 ```{r plot_demographic_results, eval=TRUE, include=TRUE}
-ggplot(data = deso.demographics_na.rm, aes(x=avg_culm_accessibility, y=`Median income tkr`)) + 
+ggplot(data = deso.demographics, aes(y=avg_culm_accessibility, x=`Median income tkr`)) + 
+  geom_point(aes(color=ifelse(foreign > 0.49, "foreign majority", "swedish majority"))) +
+  labs(color="Swedish vs foreign")
+  #scale_x_continuous(limits = c(0, 40))
+
+ggplot(data = deso.demographics, aes(y=(avg_culm_accessibility), x=housing)) + 
   geom_point(aes(color=ifelse(foreign > 0.49, "foreign majority", "swedish majority"))) +
   labs(color="Swedish vs foreign")
   #scale_x_continuous(limits = c(0, 40))
@@ -1508,24 +1551,28 @@ gothenburg.subdiv.merged %>% filter(deso %in% deso.demographics.rentals$deso) %>
 set.seed(1234)
 
 #### PCA and Correlations matrix
-deso.demographics.pca <- deso.demographics %>% 
-  rename(Population = "pop",
+deso.demographics.pca <- node_data %>% 
+  rename(Exposure = "exposure",
+         Population = "pop",
          `Higher education` = "higher_education",
          `Lower education` = "lower_education",
-         `Charge point accessibility` = "avg_culm_accessibility",
-         `Shortest distance` = "avg_dijk_dist",
+         `Charge point accessibility` = "culmulative_accessibility",
+         `Travel time` = "travel_time",
           Rental = "rental",
           Housing = "housing",
           Condominium = "condominium",
           Area = "area_m2",
+         `Closeness centrality` = "closeness",
+         `People per household` = "people_per_household",
+         `Urban density` = "density",
          #`Charge point accessibility` = "avg_accessibility",
          `Foreign background` = "foreign",
          `Swedish background` = "swedish",
          `Cars per household` = "cars_per_household",
-         `Registered cars` = "cars_on_road",
-         `Education missing` = "education_missing",
+         #`Registered cars` = "cars_on_road",
+         #`Education missing` = "education_missing",
          `Households` = "total_households") %>%
-  select(-deso, -regso, -nodes, -avg_accessibility)
+  dplyr::select(-id, -deso, -regso, -capacity, -nodes)
 
 # Scale the values to prevent bias
 deso.demographics.normalized <- scale(deso.demographics.pca)
@@ -1539,14 +1586,14 @@ corr_matrix <- cor(deso.demographics.normalized)
 
 ```{r setup_pca_matrix.rentals}
 #### PCA and Correlations matrix
-deso.demographics.pca <- deso.demographics.rentals %>% select(-deso, -regso, -nodes, -avg_accessibility)
+deso.demographics.pca <- deso.demographics.rentals %>% dplyr::select(-deso, -regso, -nodes, -avg_accessibility)
 deso.demographics.normalized <- scale(deso.demographics.pca)
 corr_matrix <- cor(deso.demographics.normalized)
 ```
 
 ```{r setup_pca_matrix.owner_occupied}
 #### PCA and Correlations matrix
-deso.demographics.pca <- deso.demographics.owner.occupied %>% select(-deso, -regso, -nodes, -avg_accessibility)
+deso.demographics.pca <- deso.demographics.owner.occupied %>% dplyr::select(-deso, -regso, -nodes, -avg_accessibility)
 deso.demographics.normalized <- scale(deso.demographics.pca)
 corr_matrix <- cor(deso.demographics.normalized)
 ```
@@ -1573,7 +1620,7 @@ fviz_pca_var(data.pca,
 # Clusters
 iris[, -5]
 deso.demographics[, 2:5]
-clusters <- deso.demographics %>% select(avg_culm_accessibility, `Median income tkr`)
+clusters <- deso.demographics %>% dplyr::select(avg_culm_accessibility, `Median income tkr`)
 cluster_scaled <- scale(clusters)
 kmeans <- kmeans(cluster_scaled, 3, nstart = 20)
 fviz_cluster(kmeans, clusters)
