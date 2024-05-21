@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use this code, please cite it as below."
+authors:
+  - family-names: Newton
+    given-names: Sarah Lorraine
+    orcid: https://orcid.org/0009-0005-6943-5891
+title: "LiU Master's Thesis in Computational Social Science: R Code"
+version: 2.0.4
+date-released: 2024-05-23
