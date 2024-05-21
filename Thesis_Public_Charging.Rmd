@@ -10,6 +10,8 @@ editor_options:
 ```{r env_setup, include=FALSE}
 ## Base packages
 library(tidyverse)
+library(maptiles)
+library(tidyterra)
 library(jsonlite)
 library(tmaptools)
 library(gtsummary)
@@ -25,7 +27,12 @@ library("ggmagnify")
 library(cowplot)
 library(rcartocolor)
 # Robustness checks
+library("lattice")
+library(sfsmisc)
+library(DHARMa)
+library(multilevelTools)
 library(broom)
+library(performance)
 library(merTools)
 library(car)
 library(ggpubr)
@@ -124,16 +131,6 @@ coords <- st_bbox(gothenburg.subdiv)
 #coords <- matrix(c(11.6, 12.05, 57.63, 57.80), byrow = TRUE, nrow = 2, ncol = 2, dimnames = list(c('x','y'),c('min','max'))) 
 location <- opq(st_bbox(gothenburg.subdiv))
 
-# Alternative approach for getting GOT boundary
-# Get the boundary for Gothenburg
-# got.boundary <- opq(bbox = "Gothenburg, Sweden") %>%
-#   add_osm_feature(key = 'admin_level', value = '7') %>% 
-#   osmdata_sf %>% unique_osmdata
-
-# got.region <- got.boundary$osm_multipolygons %>% filter(osm_id == '935611')
-# 
-# neg_buffer <- st_buffer(got.region, -100) # in meters
-# got_municipalities_poly <- got.boundary$osm_multipolygons[neg_buffer, ]
 ```
 
 ```{r fetch_road_network_osm, include=FALSE}
@@ -499,11 +496,16 @@ charge_points.p2p.geo.nodes.df <- charge_points.p2p.geo.nodes %>% as.data.frame(
 
 joined_charge_points <- merge(charge_points.osm.nodes.df, charge_points.p2p.geo.nodes.df, by.x="nodeId", by.y="charge_id", all.y = TRUE)
 
-median_cap <- median(as.integer(joined_charge_points$capacity), na.rm = TRUE)
+mode <- function(x) {
+  unique <- unique(x)
+  unique[which.max(tabulate(match(x, unique)))]
+}
+
+mode_cap <- mode(as.integer(joined_charge_points %>% filter(!is.na(capacity)) %>% pull(capacity)))
 
 joined_charge_points <- joined_charge_points %>% 
-  # Add capacity values and include the media (4) as default if NA
-  mutate(capacity = as.integer(ifelse(is.na(capacity), median_cap, capacity))) %>% 
+  # Add capacity values and include the median (4) as default if NA
+  mutate(capacity = as.integer(ifelse(is.na(capacity), mode_cap, capacity))) %>% 
   # Rename geometry and remove duplicates
   mutate(geometry = geometry.y) %>% 
   dplyr::select(-geometry.x, -geometry.y) %>% st_as_sf()
@@ -963,7 +965,7 @@ time.taken <- round(end.time - start.time, 2)
 time.taken
 
 # Save as csv for backup as the function takes 6 hours to run and you do not want to risk R crashing...
-write_csv(exposure_per_point, "data/node_exposure_per_point.csv")
+#write_csv(exposure_per_point, "data/node_exposure_per_point.csv")
 ```
 
 
@@ -1011,7 +1013,7 @@ distance_travel_matrix <- closest_charge_sf %>%
          to_id = charge_node_id, 
          length = distance,
          from_to = paste0(from_id, ":", to_id)) %>% 
-  dplyr::select(from_id, to_id, length, from_to)
+  dplyr::select(from_id, to_id, distance, from_to)
 
 # Create an additional travel matrix using the dijkstras shortest paths distance for comparison
 distance_travel_matrix_dijk <- distances_per_point.sf %>% 
@@ -1023,7 +1025,7 @@ distance_travel_matrix_dijk <- distance_travel_matrix_dijk %>%
          distance = as.numeric(dijkstras_distance),
          travel_time = as.numeric(travel_time)
          ) %>%
-  dplyr::select(from_id, to_id, length, travel_time, deso) %>% as_tibble()
+  dplyr::select(from_id, to_id, distance, travel_time, deso) %>% as_tibble()
 
 # Group duplicate locations together and combine the capacities
 grouped_charge_points <- joined_charge_points %>% 
@@ -1033,8 +1035,6 @@ grouped_charge_points <- joined_charge_points %>%
   group_by(nodeId) %>% 
   summarise(capacity = sum(capacity))
 
-### TODO
-### Get the number of chargers per point here, rather than defaulting to 1
 got_streets_net.with_charge <- got_streets_net %>% 
   activate(nodes) %>% 
   # Get charge point capacity
@@ -1044,7 +1044,7 @@ got_streets_net.with_charge <- got_streets_net %>%
                    0)
     )
   )  
-?tidygraph
+
 # Check how many charge points are connected for validation
 got_streets_net.with_charge %>% activate(nodes) %>% filter(charge_points > 0)
 
@@ -1060,25 +1060,28 @@ charge_land_use %>% filter(charge_points > 0)
 #### Run accessibility function
 ```{r potential_accessibility_func, include=FALSE}
 # Potential function (distance decay)
+## NO LONGER USED. OLD MODEL OF ACCESSIBILITY
 # The potential accessibility
 # measure estimates the accessibility of opportunities in zone i to all other zones (n) in which smaller and/or more distant opportunities provide diminishing influences. The measure has the following form, assuming a negative exponential cost function:
 
 # Run the same but for the travel matrix using dijkstras distance
-negative_exp_dijk <- gravity(
-    distance_travel_matrix_dijk,
-    charge_land_use,
-    opportunity = "charge_points",
-    travel_cost = "distance",
-    # Negative exponential cost function
-    decay_function = decay_exponential(decay_value = 0.1)
-  )
+# negative_exp_dijk <- gravity(
+#     distance_travel_matrix_dijk,
+#     charge_land_use,
+#     opportunity = "charge_points",
+#     travel_cost = "distance",
+#     # Negative exponential cost function
+#     decay_function = decay_exponential(decay_value = 0.1)
+#   )
+# 
+# view(negative_exp_dijk)
+# negative_exp_dijk %>% filter(charge_points == 0)
 
-view(negative_exp_dijk)
-negative_exp_dijk %>% filter(charge_points == 0)
+#---------------------
 
+# Culmulative count accessibility
 #The research also revealed 97% of people who do not yet own an EV would be willing to travel up to five miles to access a charging point for their EV, yet just under half (44%) were not confident they could find a public EV charging point within this distance.
 #https://midlandsengine.org/news-events/consumer-research-shows-lack-of-electric-vehicle-charge-points-a-barrier-for-uptake/
-# Culmulative count accessibility
 culm_count <- accessibility::cumulative_cutoff(travel_matrix = distance_travel_matrix_dijk,
                                  land_use_data = charge_land_use,
                                  opportunity = 'charge_points',
@@ -1277,7 +1280,7 @@ deso.demographics <- deso_aream2 %>%
   # Calculate average cars per household
   mutate(cars_per_household = cars_on_road / total_households) %>%
   mutate(people_per_household = pop / total_households) %>%
-  mutate(density = pop / area_m2) %>%
+  mutate(density = pop / (area_m2 / 1000)) %>%
   dplyr::select(deso, regso, nodes, avg_dijk_dist,  everything()) %>%
   arrange(desc(avg_culm_accessibility))
 
@@ -1355,7 +1358,7 @@ node_data <- joined_deso.nodes %>% as_tibble() %>%
 
 # Scale the predictor variables
 node_data <- node_data %>%
-   mutate_at(c(7:length(colnames(node_data))), funs(c(scale(.))))
+   mutate_at(c(7:length(colnames(node_data))), funs(c(scale(., center = TRUE))))
 
 #View a sample DESO
 node_data %>% filter(deso == "1480A0050")
@@ -1378,7 +1381,7 @@ model4.accessibility <- glmer(formula = culmulative_accessibility ~closeness+`Me
               family="poisson",
               data=node_data)
 
-
+fixef(model2.accessibility)["foreign"] + c(-2,2)*se.fixef(model2.accessibility)["rental"]
 summary(model2.accessibility)
 get_variance_random(model3.accessibility)
 ranef(model1.accessibility)$deso %>% head(5)
@@ -1390,68 +1393,29 @@ model_list.accessibility <- list(model1.accessibility, model2.accessibility,  mo
 stargazer(model_list.accessibility, type="text")
 ```
 
-```{r rentals}
-# Filter by majority rental areas
-node_data_rentals <- node_data %>% filter(rental > 0.50)
+```{r all_models}
+M1 <- glmer(formula = culmulative_accessibility ~closeness+foreign*rental+density+(1|deso), 
+            family=poisson(),
+            data=node_data)
 
-model1.accessibility.rentals <- glmer(formula = culmulative_accessibility ~closeness+foreign+housing+density+(1|deso),
-              family="poisson",
-              data=node_data_rentals)
+M2 <- glmer(formula = culmulative_accessibility ~closeness+`Median income tkr`*rental+density+(1|deso), 
+            family=poisson(), 
+            data=node_data)
 
-model2.accessibility.rentals <- glmer(formula = culmulative_accessibility ~closeness+foreign*rental+cars_per_household+density+(1|deso), 
-              family="poisson",
-              data=node_data_rentals)
+M3 <- lmer(formula = travel_time ~closeness+foreign*rental+density+(1|deso), 
+          data=node_data)
 
-model3.accessibility.rentals <- glmer(formula = culmulative_accessibility ~closeness+`Median income tkr`+housing+density+(1|deso), 
-              family="poisson",
-              data=node_data_rentals)
+M4 <- lmer(formula = travel_time ~closeness+`Median income tkr`*rental+density+(1|deso), 
+           data=node_data)
 
-model4.accessibility.rentals <- glmer(formula = culmulative_accessibility ~closeness+`Median income tkr`+cars_per_household*density+(1|deso), 
-              family="poisson",
-              data=node_data_rentals)
+summary(M1)
 
+model_list.rentals <- list(M1, M2, M3, M4)
 
-summary(model2.accessibility.rentals)
-get_variance_random(model3.accessibility.rentals)
-ranef(model1.accessibility.rentals)$deso %>% head(5)
-plotREsim(REsim(model1.accessibility.rentals))
-predictInterval(model1.accessibility.rentals)
-
-model_list.accessibility.rentals <- list(model1.accessibility.rentals, model2.accessibility.rentals, model3.accessibility.rentals, model4.accessibility)
-
-stargazer(model_list.accessibility.rentals, type="text")
+stargazer(model_list.rentals, type="text")
 ```
 
-```{r multi_level}
-model1.traveltime <- lmer(formula = (travel_time) ~closeness+foreign+cars_per_household+density+(1|deso),
-              data=node_data,
-              na.action=na.exclude)
-
-model2.traveltime <- lmer(formula = (travel_time) ~closeness+foreign*rental+density + (1|deso), 
-              data=node_data,
-              na.action=na.exclude)
-
-model3.traveltime <- lmer(formula = (travel_time) ~closeness + `Median income tkr`+cars_per_household+density+(1|deso), 
-              data=node_data,
-              na.action=na.exclude)
-
-model4.traveltime <- lmer(formula = (travel_time) ~closeness + `Median income tkr`*rental+density + (1|deso), 
-              data=node_data,
-              na.action=na.exclude)
-
-summary(model2.traveltime)
-get_variance_random(model2.traveltime)
-ranef(model2.traveltime)$deso %>% head(5)
-plotREsim(REsim(model2.traveltime)) 
-predictInterval(model2.traveltime)
-
-model_list.traveltime <- list(model1.traveltime, model2.traveltime, model3.traveltime, model4.traveltime)
-
-stargazer(model_list.traveltime, type="text")
-
-```
-
-### Prediction tests
+### Predictions
 ```{r}
 model1 <- lm(sqrt(avg_culm_accessibility) ~cars_per_household+`Median income tkr`+nodes,
              data = deso.demographics)
@@ -1469,6 +1433,35 @@ ggplot() +
 
 median(predicted_new)
 ```
+### Assumption checks
+```{r}
+culm_count.test1 <- accessibility::cumulative_cutoff(travel_matrix = distance_travel_matrix_dijk,
+                                 land_use_data = charge_land_use,
+                                 opportunity = 'charge_points',
+                                 travel_cost = 'travel_time',
+                                 cutoff = 5)
+
+culm_count.test2 <- accessibility::cumulative_cutoff(travel_matrix = distance_travel_matrix_dijk,
+                                 land_use_data = charge_land_use,
+                                 opportunity = 'charge_points',
+                                 travel_cost = 'travel_time',
+                                 cutoff = 10)
+
+
+ggplot(data = culm_count, aes(x=charge_points)) + geom_histogram(bins = 30) + 
+  labs(#title="Cumulative count results per node", subtitle="Threshold = 8", 
+       y="", x="Public chargers") + 
+  theme_custom
+ggplot(data = culm_count.test1, aes(x=charge_points)) + geom_histogram(bins = 30) + 
+  labs(#title="Cumulative count results per node", subtitle="Threshold = 5", 
+       y="", x="Public chargers") + 
+  theme_custom
+ggplot(data = culm_count.test2, aes(x=charge_points)) + geom_histogram(bins = 30) + 
+  labs(#title="Cumulative count results per node", subtitle="Threshold = 10", 
+       y="", x="Public chargers") + 
+  theme_custom
+```
+
 
 ```{r lm.test1}
 # Min/Max log accessibility
@@ -1482,52 +1475,173 @@ deso.demographics %>% arrange(desc(avg_culm_accessibility)) %>% dplyr::select(av
 plot(model1)
 ```
 
-```{r lm.test2}
-# Homoscedasticity test
-ggplot(data = node_data, aes(x = fitted(model1.accessibility), y = resid(model1.accessibility))) +
-  geom_point() +
-  geom_smooth(method = "loess", se = FALSE, linetype = "dashed") +
-  labs(x = "Fitted Values", y = "Residuals") +
-  ggtitle("Residuals vs Fitted Values") +
-  theme(text = element_text(size = 12, family = "Cambria")) + theme_minimal()
-
-#Outliers: car
-car::outlierTest(model1)
-#Outliers: Cooks distance
-cooksd <- cooks.distance(model1.mm.pois)
-influential <- as.numeric(names(cooksd)[(cooksd > 4*mean(cooksd, na.rm=T))])  # influential row numbers
-tail(node_data[influential, ])
-plot(cooksd, pch="*", cex=2, main="Influential Obs by Cooks distance")  #plot cook's distance
-abline(h = 4*mean(cooksd, na.rm=T), col="red")  # add cutoff line
-text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4*mean(cooksd, na.rm=T),names(cooksd),""), col="red")  # add labels
-
+```{r VIF_tests}
 # Multicollinearity : VIF values
 # https://www.statology.org/multicollinearity-in-r/
 # VIF = 1: There is no correlation between a given predictor variable and any other predictor variables in the model.
 # VIF between 1 and 5: There is moderate correlation between a given predictor variable and other predictor variables in the model.
 # VIF > 5: There is severe correlation between a given predictor variable and other predictor variables in the model.
-vif(model1.accessibility)
-vif(model2.accessibility)
-vif(model3.accessibility)
+vif(M1)
+vif(M2)
+vif(M3)
+vif(M4)
 
-vif(model1.traveltime)
-vif(model2.traveltime)
-vif(model3.traveltime)
+```
 
-## Normality of residuals
-plot(model3.traveltime)
+```{r lm.tests}
+# Homoscedasticity test ---------------------------------------------------------------------------------
+png(file=paste0(dirname(getwd()), "/plots/robustness/homoscedasticity_m1.png"), width=622, height=519)
+ggplot(data = node_data, aes(x = fitted(M1), y = resid(M1))) +
+  geom_point() +
+  geom_smooth(method = "loess", se = FALSE, linetype = "dashed") +
+  labs(x = "Fitted Values", y = "Residuals") +
+  #ggtitle("Residuals vs Fitted Values") +
+  theme(text = element_text(size = 12, family = "Cambria")) + theme_custom
+dev.off()
+
+png(file=paste0(dirname(getwd()), "/plots/robustness/homoscedasticity_m2.png"), width=622, height=519)
+ggplot(data = node_data, aes(x = fitted(M2), y = resid(M2))) +
+  geom_point() +
+  geom_smooth(method = "loess", se = FALSE, linetype = "dashed") +
+  labs(x = "Fitted Values", y = "Residuals") +
+  #ggtitle("Residuals vs Fitted Values") +
+  theme(text = element_text(size = 12, family = "Cambria")) + theme_custom
+dev.off()
+
+png(file=paste0(dirname(getwd()), "/plots/robustness/homoscedasticity_m3.png"), width=622, height=519)
+ggplot(data = node_data, aes(x = fitted(M3), y = resid(M3))) +
+  geom_point() +
+  geom_smooth(method = "loess", se = FALSE, linetype = "dashed") +
+  labs(x = "Fitted Values", y = "Residuals") +
+  #ggtitle("Residuals vs Fitted Values") +
+  theme(text = element_text(size = 12, family = "Cambria")) + theme_custom
+dev.off()
+
+png(file=paste0(dirname(getwd()), "/plots/robustness/homoscedasticity_m4.png"), width=622, height=519)
+ggplot(data = node_data, aes(x = fitted(M4), y = resid(M4))) +
+  geom_point() +
+  geom_smooth(method = "loess", se = FALSE, linetype = "dashed") +
+  labs(x = "Fitted Values", y = "Residuals") +
+  #ggtitle("Residuals vs Fitted Values") +
+  theme(text = element_text(size = 12, family = "Cambria")) + theme_custom
+dev.off()
+
+
+## QQplot ---------------------------------------------------------------------------------------
+png(file=paste0(dirname(getwd()), "/plots/robustness/QQplot_res_m1.png"), width=622, height=519)
+testUniformity(M1)
+dev.off()
+
+png(file=paste0(dirname(getwd()), "/plots/robustness/QQplot_res_m2.png"), width=622, height=519)
+testUniformity(M2)
+dev.off()
+
+png(file=paste0(dirname(getwd()), "/plots/robustness/QQplot_res_m3.png"), width=622, height=519)
+testUniformity(M3)
+dev.off()
+
+png(file=paste0(dirname(getwd()), "/plots/robustness/QQplot_res_m4.png"), width=622, height=519)
+testUniformity(M4)
+dev.off()
+
+# Dispersion ------------------------------------------------------------------------------------
+png(file=paste0(dirname(getwd()), "/plots/robustness/dispersion_m1.png"), width=622, height=519)
+testDispersion(M1)
+dev.off()
+
+png(file=paste0(dirname(getwd()), "/plots/robustness/dispersion_m2.png"), width=622, height=519)
+testDispersion(M2)
+dev.off()
+
+png(file=paste0(dirname(getwd()), "/plots/robustness/dispersion_m3.png"), width=622, height=519)
+testDispersion(M3)
+dev.off()
+
+png(file=paste0(dirname(getwd()), "/plots/robustness/dispersion_m4.png"), width=622, height=519)
+testDispersion(M4)
+dev.off()
+
+# Zero inflation --------------------------------------------------------------------------------
+png(file=paste0(dirname(getwd()), "/plots/robustness/zero_inflation_m1.png"), width=622, height=519)
+testZeroInflation(M1)
+dev.off()
+performance::check_zeroinflation(M1)
+
+png(file=paste0(dirname(getwd()), "/plots/robustness/zero_inflation_m2.png"), width=622, height=519)
+testZeroInflation(M2)
+dev.off()
+
+# Outlier test
+png(file=paste0(dirname(getwd()), "/plots/robustness/outliers_m1.png"), width=622, height=519)
+testOutliers(M1)
+dev.off()
+
+png(file=paste0(dirname(getwd()), "/plots/robustness/outliers_m2.png"), width=622, height=519)
+testOutliers(M2)
+dev.off()
+
+png(file=paste0(dirname(getwd()), "/plots/robustness/outliers_m3.png"), width=622, height=519)
+testOutliers(M3)
+dev.off()
+
+png(file=paste0(dirname(getwd()), "/plots/robustness/outliers_m4.png"), width=622, height=519)
+testOutliers(M4)
+dev.off()
+
+# Independence Level 1
+cor.test(residuals(M1), node_data$closeness)
+cor.test(residuals(M2), node_data$closeness)
+cor.test(residuals(M3), node_data$closeness)
+cor.test(residuals(M4), node_data$closeness)
+
+# Independence Level 2
+test_data <- node_data %>% 
+  group_by(deso) %>%
+  select(deso, foreign, `Median income tkr`) %>% 
+  unique()
+
+cor.test(test_data$foreign, ranef(M1)$deso[, 1])
+cor.test(test_data$`Median income tkr`, ranef(M2)$deso[, 1])
+cor.test(test_data$foreign, ranef(M3)$deso[, 1])
+cor.test(test_data$`Median income tkr`, ranef(M4)$deso[, 1])
+
+# Simulation tests with residuals
+simulationOutput <- simulateResiduals(fittedModel = M1)
+plot(simulationOutput)
+# Test outliers
+testOutliers(simulationOutput)
+
+#    Level-1 residuals are independent and normally distributed;
+l1resid <- residuals(M3)
+head(l1resid)
+
+node_data %>% 
+  ggplot(mapping = aes(x = deso, y = l1resid)) +
+  geom_point() +
+  labs(x = "DeSO", y = "Residuals") + 
+  theme_custom +
+  theme(axis.text.x = element_blank(), 
+        axis.ticks.x = element_blank()) 
+
+node_data %>% 
+  ggplot(mapping = aes(x = l1resid)) +
+  geom_histogram(bins = 10) + labs(y="", x = "Level 1 residuals") + theme_custom
+#    Level-2 residuals are independent and multivariate normally distributed;
+
+ #   Residuals at level-1 and level-2 are unrelated;
+
+ #   Predictors at one level are not related to errors at another level (homoscedasticity).
+
 ```
 
 ```{r plot_demographic_results, eval=TRUE, include=TRUE}
 ggplot(data = deso.demographics, aes(y=avg_culm_accessibility, x=`Median income tkr`)) + 
   geom_point(aes(color=ifelse(foreign > 0.49, "foreign majority", "swedish majority"))) +
   labs(color="Swedish vs foreign")
-  #scale_x_continuous(limits = c(0, 40))
 
 ggplot(data = deso.demographics, aes(y=(avg_culm_accessibility), x=housing)) + 
   geom_point(aes(color=ifelse(foreign > 0.49, "foreign majority", "swedish majority"))) +
   labs(color="Swedish vs foreign")
-  #scale_x_continuous(limits = c(0, 40))
 ```
 
 ```{r plot_demographic_results.rentals, eval=TRUE, include=TRUE}
@@ -1580,22 +1694,6 @@ deso.demographics.normalized <- scale(deso.demographics.pca)
 # Correlation matrix
 corr_matrix <- cor(deso.demographics.normalized)
 
-```
-
-#### Majority rental subdivisions
-
-```{r setup_pca_matrix.rentals}
-#### PCA and Correlations matrix
-deso.demographics.pca <- deso.demographics.rentals %>% dplyr::select(-deso, -regso, -nodes, -avg_accessibility)
-deso.demographics.normalized <- scale(deso.demographics.pca)
-corr_matrix <- cor(deso.demographics.normalized)
-```
-
-```{r setup_pca_matrix.owner_occupied}
-#### PCA and Correlations matrix
-deso.demographics.pca <- deso.demographics.owner.occupied %>% dplyr::select(-deso, -regso, -nodes, -avg_accessibility)
-deso.demographics.normalized <- scale(deso.demographics.pca)
-corr_matrix <- cor(deso.demographics.normalized)
 ```
 
 ```{r plot_pca_eigan_values}
