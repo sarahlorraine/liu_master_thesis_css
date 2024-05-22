@@ -7,7 +7,10 @@ editor_options:
   chunk_output_type: console
 ---
 
-Note: Run Charge_Analysis first
+R code to product the plots and tables used in the thesis
+
+Note: Run Thesis_Public_Charging.Rmd first
+
 # Theme setup
 ```{r plot designs}
 library(extrafont)
@@ -350,6 +353,8 @@ ggplot() +
 # Example network plots
 
 ```{r example_graph}
+# Generate a simple graph network to product plots as examples for the network subdivision 
+#l1
 p1 <- st_point(c(0, 1))#
 p2 <- st_point(c(2, 1))
 
@@ -386,7 +391,6 @@ ggplot() +
   geom_sf_text(data = net %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), 
                label = net.nodes$nodeId, col="white") +
   theme_void()
-
 
 test_path <- shortest_paths(
   graph = net,
