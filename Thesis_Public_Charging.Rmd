@@ -122,13 +122,8 @@ gothenburg.subdiv <- geo %>% filter(kommunnamn == "Göteborg") #%>%
 gothenburg.subdiv <- gothenburg.subdiv %>% st_transform(., 4326)
 
 ### OSM data setup
-# simple option (not as precise in this case)
-# town <- 'Gothenburg' 
-# location <- town %>% opq()
-
 # Get GOT boundary using coodinates
 coords <- st_bbox(gothenburg.subdiv)
-#coords <- matrix(c(11.6, 12.05, 57.63, 57.80), byrow = TRUE, nrow = 2, ncol = 2, dimnames = list(c('x','y'),c('min','max'))) 
 location <- opq(st_bbox(gothenburg.subdiv))
 
 ```
@@ -159,7 +154,7 @@ streets <- location %>%
   add_osm_feature(key = "highway", 
                   value = st) %>% osmdata_sf()
 
-### Get all relevant streets all of gothenburg (to be used for the network)
+### Get all relevant streets all of Gothenburg (to be used for the network)
 got_streets <- location %>%
                                   # Get all streets and motorways
   add_osm_features(feature = list("highway" = c(main_st, st), 
@@ -186,86 +181,15 @@ got_streets <- location %>%
 
 ### Create network graph
 
-```{r setup_network_graph_old, include=FALSE}
-##### Preparing Graph of nodes and edges #####
-
-# ### Bind the relevant streets and paths into one set 
-# got_streets <- rbind((streets$osm_lines %>% dplyr::select(highway)), 
-#                      main_streets$osm_lines %>% dplyr::select(highway))
-# 
-# # Give each edge a unique index
-# edges <- got_streets %>% 
-#   dplyr::select(highway) %>%
-#   mutate(edgeID = c(1:n()))
-# 
-# # Create nodes at the start and end point of each edge
-# nodes <- edges %>%
-#   st_coordinates() %>%
-#   as_tibble() %>%
-#   rename(edgeID = L1) %>%
-#   group_by(edgeID) %>%
-#   slice(c(1, n())) %>%
-#   ungroup() %>%
-#   mutate(start_end = rep(c('start', 'end'), times = n()/2))
-# 
-# # Give each node a unique index
-# nodes <- nodes %>%
-#   mutate(xy = paste(.$X, .$Y)) %>% 
-#   mutate(nodeID = group_indices(., factor(xy, levels = unique(xy)))) %>%
-#   dplyr::select(-xy)
-# 
-# # Combine the node indices with the edges
-# source_nodes <- nodes %>%
-#   filter(start_end == 'start') %>%
-#   pull(nodeID)
-# 
-# target_nodes <- nodes %>%
-#   filter(start_end == 'end') %>%
-#   pull(nodeID)
-# 
-# # Merge source nodes and target nodes
-# edges <- edges %>%
-#   mutate(from = source_nodes, to = target_nodes)
-# 
-# # Remove duplicate nodes
-# nodes <- nodes %>%
-#   distinct(nodeID, .keep_all = TRUE) %>%
-#   dplyr::select(-c(edgeID, start_end)) %>%
-#   st_as_sf(coords = c('X', 'Y')) %>%
-#   st_set_crs(st_crs(edges))
-# 
-# # Create a graph from the adjacency matrix
-# graph <- tbl_graph(nodes = nodes, edges = as_tibble(edges), directed = FALSE)
-# 
-# # Identify isolate nodes in the graph
-# # isolated(as_adjacency_matrix(graph)) %>% as_tibble() %>% filter(value==TRUE)
-# 
-# # The activate() verb specifies if we want to manipulate the edges or the nodes. 
-# graph <- graph %>%
-#   activate(edges) %>%
-#   filter(!edge_is_multiple()) %>%
-#   filter(!edge_is_loop()) %>%
-#   mutate(length = st_length(geometry))
-# 
-# # Subdivide the edges
-# graph <- convert(graph, to_spatial_subdivision)
-# # Smooth
-# # Smoothing reduces precision so will not use
-# # graph <- convert(graph, to_spatial_smooth, summarise_attributes = list(length = "sum"))
-# 
-# graph %>% activate(edges) %>% as_tibble() %>% filter(is.na(length))# %>% st_as_sf()
-# # graph <- graph %>% activate(edges) %>% as_tibble() %>% filter(!is.na(length)) %>% st_as_sf()
-
-```
-
 ```{r setup_network_graph}
 ##### Preparing the road network graph of nodes and edges #####
-# Turn return polygons to linestrings
+
+# Turn polygons to linestrings
  poly_to_lines <- st_cast(got_streets$osm_polygons, "LINESTRING")
 # bind all lines together
  got_streets.lines <- bind_rows(got_streets$osm_lines, poly_to_lines)
  
-# Select just the "highway" and "junction" values of the osmlines as the rest are not needed in the network
+# Select just the "highway" and "junction" values of the osmlines as the rest are not needed for the network
 got_streets.lines <- got_streets.lines %>% dplyr::select(highway, junction, maxspeed)
 
 got_streets_net <- as_sfnetwork(got_streets.lines, directed = FALSE)
@@ -294,16 +218,6 @@ got_streets_net <- got_streets_net %>%
   # Set the time taken to traverse the edge based on max speed
   mutate(time = distance.km * 100 / as.integer(maxspeed))
 
-# Remove "islands" of nodes and edges isolated from the wider road network.
-# Threshold is set to 6
-# !!! This is a problematic way to remove islands and could cause disruptions in the wider network. 
-# Instead, use Components below
-# got_streets_net <- got_streets_net %>% 
-#   activate(nodes) %>% 
-#   mutate(neighbourhood = local_size(order = 6)) %>% 
-#   filter(neighbourhood > 5)
-##got_streets_net.unfiltered <- got_streets_net.unfiltered %>% activate(edges) %>% mutate(edge_id = c(1:n()))
-
 # Check the number of components in the network (Number of isolated islands not connected to the main network)
 #https://igraph.org/r/doc/components.html
 components <- got_streets_net %>% components(., mode = c("weak", "strong"))
@@ -313,7 +227,6 @@ components$csize %>% as_tibble() %>% rownames_to_column(., "component") %>% arra
 got_streets_net <- got_streets_net %>% activate(nodes) %>% mutate(component = components$membership)
 
 # After validating the component results, all components aside from 1 contained areas that were not used in this analysis, such as isolated industrial access roads and private access roads or access paths
-# !! Västra Lindås becomes isolated from the network when filtering on the GOT boundaries. May need to fix this, or cater for that when discussing the results
 got_streets_net <- got_streets_net %>% activate(nodes) %>% filter(component == 1)
 
 # Add an "id" to each node in the network based on rowname index
@@ -340,7 +253,6 @@ got_streets_coords <- got_streets_net %>%
 
 ### Charging points
 ```{r p2p_charge_points, include=FALSE}
-
 # Data from 'Open Street Maps'
 # Gets data from OSM api
 charging_stations.osm <- location %>%
@@ -365,7 +277,7 @@ p2p.data <- p2p.data %>% dplyr::select(id, name, address, isFastCharge, powerRan
 p2p.data <- p2p.data %>% mutate(full_address = gsub(" , ", "", paste(ifelse(is.na(address$street), name, address$street), 
                                          address$city, 
                                          address$subdivision)))
-# Generate thecharge point details url
+# Generate the charge point details url
 getDetailsUrl <- function (x) {
   return(paste0("https://placetoplug.com/en/charging-stations/Sweden/", 
                 x$full_address, "/", 
@@ -441,24 +353,6 @@ charge_points.long_lat.matrix <- as.matrix(st_coordinates(charge_points.p2p.geo)
 ### Snap charge points to nodes
 
 ```{r snap_points_to_nodes, include=FALSE}
-# Function for getting the node id of a charge point
-getNodePoint <- function(chargeId) {
-  i <- match(chargeId, charge_points.p2p.geo.nodes$charge_id)
-  # Get nodeID of the point to snap to
-  snap_node <- as.integer(charge_points.p2p.geo.nodes[i,]$nodeId)
-  #print(paste(charge, i, snap_node, snap_point_id))
-  return(snap_node)
-}
-
-# Function for getting the charge id of a charge point
-getChargePoint <- function(chargeId) {
-  i <- match(chargeId, charge_points.p2p.geo.nodes$charge_id)
-  # Get nodeID of the point to snap to
-  charge_node <- as.integer(charge_points.p2p.geo.nodes[i,]$charge_id)
-  #print(paste(charge, i, snap_node, snap_point_id))
-  return(charge_node)
-}
-
 ### Snap charging points to nodes
 # Alternative. nearest_feature https://cran.r-project.org/web/packages/sfnetworks/vignettes/sfn03_join_filter.html
 #charge_point.coords <- charge_points.long_lat.matrix %>% as_tibble() %>% st_as_sf(coords = c("X", "Y"), crs = 4326)
@@ -605,62 +499,6 @@ got_streets_net.knn <- cbind(got_streets_coords, closest_charge_sf) %>%
 # 
 # colnames(closest.sf.nodes) <- c("node_id", "distance")
 ```
-
-```{r snap_points_to_nodes_Manual, include=FALSE}
-# Create a simple matrix of snap points based on the closest node calculated using knn above
-# snap_matrix <- closest.sf.nodes %>%
-#   rownames_to_column(., var = "charge_id") %>%
-#   dplyr::select(node_id, charge_id)
-# 
-# # Function: Based on the closest network node to a charge point, get snap point geometry
-# getSnapPoint <- function(node) {
-#   i <- match(node, snap_matrix[,2])
-#   snap_node <- as.integer(snap_matrix[i,]$node_id)
-#   snap_point <- got_streets.df[snap_node,]$geometry
-#   return(snap_point)
-# }
-# 
-# # Check to ensure working function and no NAs
-# # na_charge_list <- data.frame()
-# # checkNa <- function(charge) {
-# #   i <- match(charge, snap_matrix[,2])
-# #   snap_node <- as.integer(snap_matrix[i,]$node_id)
-# #   snap_point_id <- got_streets.sf[snap_node,]$nodeID
-# #   return(data.frame(snap_node, charge))
-# # }
-# #
-# # for (i in 1:nrow(charge_points.p2p.geo)) {
-# #   new_elements <- checkNa(charge_points.p2p.geo$charge_id[i])
-# #  # To check which values are null
-# #   na_charge_list <- ifelse(is.na(new_elements[1]),
-# #        rbind(na_charge_list, new_elements[2]), na_charge_list)
-# # }
-# # na_charge_list <- na_charge_list[[1]]
-# 
-# # Function: Based on the closest network node to a charge point, get snap point node id
-# getNodePoint <- function(charge) {
-#   i <- match(charge, snap_matrix[,2])
-#   # Get nodeID of the point to snap to
-#   snap_node <- as.integer(snap_matrix[i,]$node_id)
-#   #print(paste(charge, i, snap_node, snap_point_id))
-#   return(snap_node)
-# }
-# 
-# # Node ids: Mutate the existing charge point data using the above functions
-# charge_points.p2p.geo.nodes <- charge_points.p2p.geo %>%
-#   mutate(nodeId = mapply(getNodePoint, charge_id)) %>%
-#   dplyr::select(charge_id, nodeId) %>%
-#   as_tibble() %>%
-#   st_as_sf(crs = 4326)
-# 
-# # Snap point geometry: Mutate the existing charge point data using the above functions
-# charge_points.p2p.geo.snaps <- charge_points.p2p.geo %>%
-#   mutate(geometry = mapply(getSnapPoint, charge_id)) %>%
-#   dplyr::select(charge_id, geometry) %>%
-#   as_tibble() %>%
-#   st_as_sf(crs = 4326)
-```
-
 
 ### Dijkstra's graph search (shorted path)
 
@@ -995,9 +833,7 @@ filtered %>% filter(is.na(to_node)) %>% nrow()
 ```
 
 
-### Accessibility measures
-
-Using a measure for culmulative count accessibility by distance decay. Operationalized as a negative exponential function for surrounding nodes
+### Accessibility measure
 
 ```{r prepare_data_accessibility, include=FALSE}
 # https://cran.r-project.org/web/packages/accessibility/vignettes/accessibility.html
@@ -1006,14 +842,6 @@ Using a measure for culmulative count accessibility by distance decay. Operation
 # 2. A land use data set so identify which points contain a charge point. Used for determining accessibility
 
 # Setup a distance travel matrix using all nodes and the distance to their knn nearest charge point
-distance_travel_matrix <- closest_charge_sf %>% 
-  rownames_to_column(., var = "node_id") %>%
-  mutate(charge_node_id = mapply(getNodePoint, charge_id)) %>%
-  mutate(from_id = node_id, 
-         to_id = charge_node_id, 
-         length = distance,
-         from_to = paste0(from_id, ":", to_id)) %>% 
-  dplyr::select(from_id, to_id, distance, from_to)
 
 # Create an additional travel matrix using the dijkstras shortest paths distance for comparison
 distance_travel_matrix_dijk <- distances_per_point.sf %>% 
@@ -1080,8 +908,6 @@ charge_land_use %>% filter(charge_points > 0)
 #---------------------
 
 # Culmulative count accessibility
-#The research also revealed 97% of people who do not yet own an EV would be willing to travel up to five miles to access a charging point for their EV, yet just under half (44%) were not confident they could find a public EV charging point within this distance.
-#https://midlandsengine.org/news-events/consumer-research-shows-lack-of-electric-vehicle-charge-points-a-barrier-for-uptake/
 culm_count <- accessibility::cumulative_cutoff(travel_matrix = distance_travel_matrix_dijk,
                                  land_use_data = charge_land_use,
                                  opportunity = 'charge_points',
@@ -1177,7 +1003,6 @@ ggplot() +
 ```
 
 ```{r plot_avg_distance_deso, eval=TRUE, include=TRUE}
-
 ### Density plot
 gothenburg.subdiv.merged %>% as_tibble() %>% 
   ggplot() + geom_density(aes(avg_culm_accessibility)) + 
@@ -1281,7 +1106,7 @@ deso.demographics <- deso_aream2 %>%
   mutate(cars_per_household = cars_on_road / total_households) %>%
   mutate(people_per_household = pop / total_households) %>%
   mutate(density = pop / (area_m2 / 1000)) %>%
-  dplyr::select(deso, regso, nodes, avg_dijk_dist,  everything()) %>%
+  dplyr::select(deso, regso, nodes, avg_dijk_dist, everything()) %>%
   arrange(desc(avg_culm_accessibility))
 
 #view(deso.demographics.rentals)
@@ -1322,11 +1147,6 @@ central_station <- tibble(landmark = c("Central Station"),
 ### Multi-level model
 
 ```{r nodelevel_data_cleaning}
-# test <- got_streets_net
-# test <- test %>% activate("nodes") %>% mutate(eigen_centrality = eigen_centrality(got_streets_net)$vector)
-# test.tibble <- test %>% activate("nodes") %>% as_tibble()
-# plot(test.tibble$eigen_centrality)
-
 # Closeness Centrality indicates how close a node is to the other nodes. 
 # It is calculated as the average of the shortest path lengths of the node to the other nodes in the network.
 # (8+ minutes to run)
@@ -1344,9 +1164,7 @@ time.taken <- round(end.time - start.time, 2)
 time.taken
 
 node_data <- joined_deso.nodes %>% as_tibble() %>%
-  mutate(#capacity = as.numeric(grouped_charge_points[match(joined_deso.nodes$to_node, grouped_charge_points$nodeId),]$capacity),
-         #dijkstras_distance = as.numeric(dijkstras_distance),
-         id = from_node,
+  mutate(id = from_node,
          travel_time = as.numeric(travel_time),
          closeness = closeness,
          deso = factor(deso)) %>% 
@@ -1362,35 +1180,6 @@ node_data <- node_data %>%
 
 #View a sample DESO
 node_data %>% filter(deso == "1480A0050")
-```
-
-```{r all}
-model1.accessibility <- glmer(formula = culmulative_accessibility ~closeness+foreign+cars_per_household+density+(1|deso),
-              family="poisson",
-              data=node_data)
-
-model2.accessibility <- glmer(formula = culmulative_accessibility ~closeness+foreign*rental+density+(1|deso), 
-              family="poisson",
-              data=node_data)
-
-model3.accessibility <- glmer(formula = culmulative_accessibility ~closeness+`Median income tkr`+cars_per_household+density+(1|deso), 
-              family="poisson",
-              data=node_data)
-
-model4.accessibility <- glmer(formula = culmulative_accessibility ~closeness+`Median income tkr`*rental+density+(1|deso), 
-              family="poisson",
-              data=node_data)
-
-fixef(model2.accessibility)["foreign"] + c(-2,2)*se.fixef(model2.accessibility)["rental"]
-summary(model2.accessibility)
-get_variance_random(model3.accessibility)
-ranef(model1.accessibility)$deso %>% head(5)
-plotREsim(REsim(model1.accessibility))
-predictInterval(model1.accessibility)
-
-model_list.accessibility <- list(model1.accessibility, model2.accessibility,  model3.accessibility, model4.accessibility)
-
-stargazer(model_list.accessibility, type="text")
 ```
 
 ```{r all_models}
@@ -1415,26 +1204,9 @@ model_list.rentals <- list(M1, M2, M3, M4)
 stargazer(model_list.rentals, type="text")
 ```
 
-### Predictions
+### Robustness checks
 ```{r}
-model1 <- lm(sqrt(avg_culm_accessibility) ~cars_per_household+`Median income tkr`+nodes,
-             data = deso.demographics)
-summary(model1)
-
-new_data <- deso.demographics %>% dplyr::select(foreign, `Median income tkr`, cars_per_household, nodes, housing) # Provide new data for prediction
-predicted_new <- predict(model1, newdata = new_data)
-
-# Create a scatter plot with separate points for original and predicted values
-ggplot() +
-  geom_histogram(data = deso.demographics, aes(x=avg_culm_accessibility), fill="light blue") +
-  geom_histogram(data = tibble(value = predicted_new), aes(x=value), fill="red", alpha=0.6) +
-  labs(x = "Values", y = "Values", title = "Original vs. Predicted Values") +
-  theme_minimal()
-
-median(predicted_new)
-```
-### Assumption checks
-```{r}
+#Accessibility threshold test
 culm_count.test1 <- accessibility::cumulative_cutoff(travel_matrix = distance_travel_matrix_dijk,
                                  land_use_data = charge_land_use,
                                  opportunity = 'charge_points',
@@ -1462,22 +1234,8 @@ ggplot(data = culm_count.test2, aes(x=charge_points)) + geom_histogram(bins = 30
   theme_custom
 ```
 
-
-```{r lm.test1}
-# Min/Max log accessibility
-deso.demographics %>% mutate(avg_accessibility = log10(avg_accessibility)) %>% dplyr::select(avg_accessibility) %>% max()
-deso.demographics %>% mutate(avg_accessibility = log10(avg_accessibility)) %>% dplyr::select(avg_accessibility) %>% min()
-
-# Confidence intervals
-confint(model1.wt)
-
-deso.demographics %>% arrange(desc(avg_culm_accessibility)) %>% dplyr::select(avg_culm_accessibility) %>% summarize(mean = mean(avg_culm_accessibility))
-plot(model1)
-```
-
 ```{r VIF_tests}
 # Multicollinearity : VIF values
-# https://www.statology.org/multicollinearity-in-r/
 # VIF = 1: There is no correlation between a given predictor variable and any other predictor variables in the model.
 # VIF between 1 and 5: There is moderate correlation between a given predictor variable and other predictor variables in the model.
 # VIF > 5: There is severe correlation between a given predictor variable and other predictor variables in the model.
@@ -1655,11 +1413,7 @@ gothenburg.subdiv.merged %>% filter(deso %in% deso.demographics.rentals$deso) %>
   arrange(avg_culm_accessibility) %>% view()
 ```
 
-### PCA analysis
-
-<https://www.datacamp.com/tutorial/pca-analysis-r>
-
-#### All subdivisions
+### Correlation
 
 ```{r setup_pca_matrix.all}
 set.seed(1234)
@@ -1696,7 +1450,10 @@ corr_matrix <- cor(deso.demographics.normalized)
 
 ```
 
+# PCA analysis
 ```{r plot_pca_eigan_values}
+# NOT USED IN THE ANALYSIS IN THE END
+
 # Perform PCA and run analysis on variables and relations
 data.pca <- princomp(corr_matrix)
 summary(data.pca)

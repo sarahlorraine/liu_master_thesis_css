@@ -81,8 +81,6 @@ joined_charge_points %>%
   scale_x_continuous(breaks = seq(0, max(joined_charge_points$powerRange.max), 25)) +
   scale_color_manual(wes_palette(n=1, name = "Zissou1")) +
   theme_custom
-  #select("Latitude", "Longitude", "Capacity", "Parking fee", -geometry) %>%
-  #stargazer::stargazer(type="latex", style="asr", summary = TRUE,title = "PEV public charging points across Gothenburg city", notes = "Charging point data sourced from Place to Plug and Open Street Maps")
 
 ```
 
@@ -201,10 +199,6 @@ gg_inset_map1 <- cowplot::ggdraw() +
   geom_segment(aes(x = 7.5, xend = 1, y = 14.4, yend = 9.2), color = "yellow", size = 1.2)
 ggplot() +
   geom_sf(data = got_streets_net %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), col="#90C59B", size=0.2) + 
-  #geom_sf(data = gothenburg.subdiv, alpha=0.6, linewidth=0.6, colour="#8778D7", fill="#90C59B") +
-  #geom_sf(data = got_streets_net %>% activate(edges) %>% as_tibble() %>% st_as_sf(), linewidth=0.2, color = 'grey') +
-  #geom_sf(data = main_streets$osm_lines, alpha=0.5, color = "black", linewidth=0.6) + 
-  #geom_sf(data = joined_charge_points, aes(size=(capacity), color=capacity)) +
   scale_color_distiller(palette = "Oranges", breaks = c(1, 25, 50, 75, 100), guide="none") +
   scale_size(breaks = c(1, 25, 50, 75, 100)) +
   labs(#title="Public PEV charging points in Gothenburg municipality",
@@ -500,10 +494,7 @@ top10.travel <- gothenburg.subdiv.merged %>% arrange(desc(avg_dijk_dist)) %>% he
 ggplot() +
   geom_sf(data=gothenburg.subdiv.merged, alpha=0.9, linewidth=0.4) +
   geom_sf(data=gothenburg.subdiv.merged, aes(fill=sqrt(avg_travel_time)), linewidth=0.4) +
-  #geom_sf_label(data = central_station, label = central_station$landmark, nudge_y = 0.012, alpha=0.8) +
   geom_sf(data = top10.travel, size=2) +
-  #geom_sf_label(data = top10, label=top10$regso)+
-  #geom_sf(data =central_station, size=2.8) +
    labs(#title="Average distance to public charging point in Gothenburg",
        #subtitle = "DeSO subdivisions with min 75% rental housing",
        fill = "Travel time (sqrt)") +
@@ -579,8 +570,6 @@ ggplot() +
   # geom_sf_label(data = utsatta_områden, label = utsatta_områden$neighbourhood, nudge_y = 0.007, alpha=0.8) +
   # geom_sf(data = utsatta_områden, aes(size=(utsatta_områden$risk_level))) +
   geom_sf(data = top10.accessibility, size=2) +
-  #geom_sf_label(data = central_station, label = central_station$landmark, nudge_y = 0.012, alpha=0.8) +
-  #geom_sf(data = central_station, size=2.8) +
   labs(#title="Average accessibility to public charging point in Gothenburg",
        #subtitle = "DeSO subdivisions with min 75% rental housing",
        fill = "Accessibility level") +
@@ -644,10 +633,6 @@ got.sub.new.rentals %>% arrange((avg_culm_accessibility)) %>% head(10) %>% as_ti
 joined_deso.nodes %>% pull(culmulative_accessibility) %>% mean(., na.rm=TRUE)
 ## Plot map with node points and their color coded distance values
 ggplot() +
-  #geom_sf(data = streets$osm_lines, linewidth=0.2, color = '#1e00be') +
-  #geom_sf(data = main_streets$osm_lines, alpha=0.8, color = "#1e00be", linewidth=0.6) + 
-  #geom_sf(data = got.boundary$osm_multipolygons, linewidth=0.5, colour="grey") +
-  #geom_sf(data=gothenburg.subdiv, alpha=0.2, linewidth=0.6, colour="transparent", fill="#90C59B")+
   geom_histogram(data = joined_deso.nodes, 
                  fill=wes_palette(n=1, name = "Zissou1"), 
                  aes(x=culmulative_accessibility), binwidth = 1.2) +
@@ -689,10 +674,6 @@ deso.demographics %>%
                        omit.summary.stat = c("N", "Sd"), 
                        title = "DeSO demographic data for Gothenburg", 
                        notes = "Data from Statistics Sweden. Recorded 2022.")
-  # tbl_summary(., include=c(-ages),
-  #             statistic = list(all_continuous() ~ "{mean} ({min}, {max})")) %>%
-  #             modify_footnote(all_stat_cols() ~ "Mean (Minimun) (Maximum)") %>%
-  #             modify_caption("**Gothenburg city DeSO demographic data (All)** (N = {N})")
 ```
 
 
